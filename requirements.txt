@@ -1,2 +1,2 @@
 requests>=2.28.1 # for tidalapi
-tidalapi==0.7.0
+tidalapi==0.8.11

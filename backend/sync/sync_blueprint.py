@@ -11,14 +11,12 @@ def run_sync():
     if not spotify_token or not tidal_token:
         return jsonify({'status': 'error', 'message': 'Log eerst in bij zowel Spotify als Tidal.'}), 400
 
-    tidal_user_id = session.get('tidal_user_id')
-    country_code = session.get('tidal_country_code', 'NL')
-
     result = perform_two_way_sync(
         spotify_token=spotify_token,
         tidal_token=tidal_token,
-        tidal_user_id=tidal_user_id,
-        country_code=country_code,
+        tidal_refresh_token=session.get('tidal_refresh_token'),
+        tidal_user_id=session.get('tidal_user_id'),
+        country_code=session.get('tidal_country_code', 'NL'),
     )
     status_code = 200 if result.get('status') == 'success' else 500
     return jsonify(result), status_code

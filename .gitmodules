@@ -1,0 +1,3 @@
+[submodule "csv2tidal"]
+	path = csv2tidal
+	url = https://github.com/stensel8/csv2tidal

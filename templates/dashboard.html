@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Music-Sync Dashboard{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-semibold mb-8 text-base-content">Dashboard</h1>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl">
+  <!-- Spotify Card -->
+  <div class="card bg-base-100 border border-base-300 shadow-md hover:shadow-lg transition-shadow">
+    <div class="card-body">
+      <div class="flex items-center gap-3 mb-2">
+        <svg class="w-6 h-6 text-green-400" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
+        </svg>
+        <h2 class="card-title text-base-content">Spotify</h2>
+      </div>
+      <p class="text-base-content/60 text-sm mb-4">Verbind je Spotify account om gesynchroniseerd te worden.</p>
+      <div class="card-actions">
+        <a href="{{ url_for('spotify.spotify_account') }}" class="btn btn-sm btn-outline w-full">Account bekijken</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tidal Card -->
+  <div class="card bg-base-100 border border-base-300 shadow-md hover:shadow-lg transition-shadow">
+    <div class="card-body">
+      <div class="flex items-center gap-3 mb-2">
+        <svg class="w-6 h-6 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12.012 3.992L8.008 7.996 4.004 3.992 0 7.996l4.004 4.004 4.004-4.004 4.004 4.004 4.004-4.004zM8.008 16.004l4.004-4.004 4.004 4.004L20.02 11.996l-4.004-4.004-4.004 4.004-4.004-4.004-4.004 4.008z"/>
+        </svg>
+        <h2 class="card-title text-base-content">Tidal</h2>
+      </div>
+      <p class="text-base-content/60 text-sm mb-4">Verbind je Tidal account om nummers naartoe te synchroniseren.</p>
+      <div class="card-actions">
+        <a href="{{ url_for('tidal.tidal_account') }}" class="btn btn-sm btn-outline w-full">Account bekijken</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="divider my-8 max-w-2xl"></div>
+
+<!-- Sync Section -->
+<div class="max-w-2xl">
+  <div class="card bg-base-100 border border-base-300 shadow-md">
+    <div class="card-body">
+      <h2 class="card-title text-base-content mb-1">Synchronisatie</h2>
+      <p class="text-base-content/60 text-sm mb-4">Haal je opgeslagen Spotify nummers op en voeg ze toe aan een Tidal playlist <span class="font-mono text-xs">Music-Sync (from Spotify)</span>.</p>
+      <button id="sync-button" class="btn btn-primary w-full">
+        Start Sync (Spotify → Tidal)
+      </button>
+      <div id="sync-result" class="mt-3"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('sync-button').addEventListener('click', async function () {
+  const btn = this;
+  const resultDiv = document.getElementById('sync-result');
+  btn.disabled = true;
+  btn.textContent = 'Bezig met synchroniseren...';
+  resultDiv.innerHTML = '';
+
+  try {
+    const resp = await fetch('/sync/run', { method: 'POST' });
+    const data = await resp.json();
+    if (resp.ok && data.status === 'success') {
+      resultDiv.innerHTML = `<div class="alert alert-success text-sm"><span>${data.message}</span></div>`;
+    } else {
+      resultDiv.innerHTML = `<div class="alert alert-error text-sm"><span>${data.message || data.error || 'Onbekende fout.'}</span></div>`;
+    }
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="alert alert-error text-sm"><span>Verbindingsfout: ${e.message}</span></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Start Sync (Spotify → Tidal)';
+  }
+});
+</script>
+{% endblock %}

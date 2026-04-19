@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Mijn Tidal Account{% endblock %}
+{% block content %}
+  <h1 class="mt-4 mb-4 text-3xl font-semibold">Mijn Tidal Account</h1>
+  <div class="card bg-base-100 shadow-xl mb-6">
+    <div class="card-body">
+      <p><strong>Naam:</strong> {{ tidal_profile.firstName or tidal_profile.username or 'Niet beschikbaar' }}</p>
+      <p><strong>Email:</strong> {{ tidal_profile.email or 'Niet beschikbaar' }}</p>
+      <p><strong>Land:</strong> {{ tidal_profile.countryCode or 'Niet beschikbaar' }}</p>
+    </div>
+  </div>
+  <h2 class="text-2xl font-semibold mb-4">Playlists</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+    {% if tidal_playlists and tidal_playlists|length > 0 %}
+      {% for playlist in tidal_playlists %}
+        <div class="card bg-base-100 shadow">
+          <div class="card-body">
+            <p class="text-lg font-bold">{{ playlist.title }}</p>
+            <p class="text-sm text-gray-500">{{ playlist.numberOfTracks or 0 }} nummers</p>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p>Geen playlists gevonden.</p>
+    {% endif %}
+  </div>
+{% endblock %}

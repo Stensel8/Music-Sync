@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="night">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Music-Sync{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  {% block head %}{% endblock %}
+</head>
+<body class="bg-base-200">
+  <div class="navbar bg-base-100 shadow">
+    <div class="navbar-start">
+      <a class="btn btn-ghost normal-case text-xl" href="{{ url_for('dashboard') }}">Music-Sync</a>
+    </div>
+    <div class="navbar-end">
+      <ul class="menu menu-horizontal p-0">
+        <li><a href="{{ url_for('spotify.spotify_account') }}">Spotify</a></li>
+        <li><a href="{{ url_for('tidal.tidal_account') }}">Tidal</a></li>
+        <li><a href="{{ url_for('login') }}">Login</a></li>
+        {% if logout_url is defined and logout_url %}
+        <li><a href="{{ logout_url }}">Logout</a></li>
+        {% endif %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="container mx-auto mt-8">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

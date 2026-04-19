@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Mijn Spotify Account{% endblock %}
+{% block content %}
+  <h1 class="text-3xl font-semibold mb-4">Mijn Spotify Account</h1>
+  {% if missing_permissions %}
+    <div class="alert alert-warning mb-4">
+      <div>
+        <strong>Let op:</strong> Er ontbreken de volgende rechten: {{ missing_permissions | join(', ') }}
+      </div>
+    </div>
+  {% endif %}
+  <div class="card bg-base-100 shadow-xl mb-6">
+    <div class="card-body">
+      <p><strong>Naam:</strong> {{ account.display_name }}</p>
+      <p><strong>Email:</strong> {{ account.email or 'Niet beschikbaar' }}</p>
+      <p><strong>Land:</strong> {{ account.country }}</p>
+      <p><strong>Volgers:</strong>
+        {% set followers = account.get('followers') %}
+        {{ followers.total if followers and followers.total is defined else 'Niet beschikbaar' }}
+      </p>
+    </div>
+  </div>
+  <h2 class="text-2xl font-semibold mb-4">Playlists</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+    {% if playlists and playlists|length > 0 %}
+      {% for playlist in playlists %}
+        <div class="card bg-base-100 shadow">
+          <div class="card-body">
+            <a href="https://open.spotify.com/playlist/{{ playlist.id }}" target="_blank" class="btn btn-primary w-full">
+              {{ playlist.name }}
+            </a>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p>Geen playlists gevonden.</p>
+    {% endif %}
+  </div>
+{% endblock %}

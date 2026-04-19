@@ -3,32 +3,42 @@
 import sys
 import argparse
 import csv
-import pprint
-from auth import open_tidal_session
 import tidalapi
+from auth import open_tidal_session
+
+parser = argparse.ArgumentParser(description='Import CSV albums into a Tidal playlist.')
+parser.add_argument('file', help='CSV file with columns: artist,title')
+parser.add_argument('--playlist', default='csv2tidal import', help='Tidal playlist name (default: csv2tidal import)')
+args = parser.parse_args()
 
 tidal_session = open_tidal_session()
 if not tidal_session.check_login():
     sys.exit("Could not connect to Tidal")
 
-csvfile = sys.argv[1]
+# Get or create playlist
+playlist = None
+for pl in tidal_session.user.playlists():
+    if pl.name == args.playlist:
+        playlist = pl
+        break
+if playlist is None:
+    playlist = tidal_session.user.create_playlist(args.playlist, f'Imported via csv2tidal')
 
-print("Import %s" % csvfile)
+print(f"Importing into playlist: {playlist.name}")
 
-favorites = tidalapi.Favorites(tidal_session, tidal_session.user.id)
+track_ids = []
+with open(args.file, encoding='utf8') as csvfile:
+    for artist, album in csv.reader(csvfile):
+        print(f'Processing {artist} - {album}')
+        results = tidal_session.search(f'{artist} {album}', models=[tidalapi.Track], limit=3)
+        hits = results.get('tracks', [])
+        if not hits:
+            print(f'WARNING: No tracks found for {artist} - {album}, skipping\n')
+            continue
+        track_ids.append(str(hits[0].id))
 
-with open(csvfile, encoding="utf8") as csvfile:
-	rows = csv.reader(csvfile)
-	for artist, album in rows:
-		print('Processing {} - {}'.format(artist, album))
-		
-		albums_data = tidal_session.search('{} - {}'.format(artist, album))['albums']
-
-		if len(albums_data) == 0:
-			print('WARNING: No albums found for {} - {}, continuing\n'.format(artist, album))
-			continue
-
-		selection = 0
-
-		album_to_add = albums_data[selection]
-		favorites.add_album(album_to_add.id)
+if track_ids:
+    playlist.add(track_ids)
+    print(f'\nDone. Added {len(track_ids)} tracks to "{playlist.name}".')
+else:
+    print('\nNo tracks found to add.')

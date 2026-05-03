@@ -23,7 +23,7 @@
   "dependencies": {
     "autoprefixer": "^10.4.20",
     "flowbite": "^4.0.0",
-    "postcss": "^8.5.2"
+    "postcss": "^8.5.13"
   },
   "devDependencies": {
     "tailwindcss": "^4.2.4"

@@ -1,73 +1,31 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
-  ],
+  "extends": ["config:recommended"],
   "timezone": "Europe/Amsterdam",
   "forkProcessing": "enabled",
   "pinDigests": true,
   "assigneesFromCodeOwners": true,
   "reviewersFromCodeOwners": true,
-  "enabledManagers": [
-    "pip_requirements",
-    "npm",
-    "github-actions"
-  ],
-  "labels": [
-    "dependencies"
-  ],
+  "automerge": true,
+  "automergeType": "pr",
+  "semanticCommits": "enabled",
+  "enabledManagers": ["pip_requirements", "npm", "github-actions"],
+  "labels": ["dependencies"],
   "packageRules": [
     {
-      "matchManagers": [
-        "dockerfile",
-        "docker-compose"
-      ],
-      "groupName": "Docker images",
-      "addLabels": [
-        "docker"
-      ]
-    },
-    {
-      "matchManagers": [
-        "github-actions"
-      ],
+      "matchManagers": ["github-actions"],
       "groupName": "GitHub Actions",
-      "addLabels": [
-        "github-actions"
-      ]
+      "addLabels": ["github-actions"]
     },
     {
-      "matchUpdateTypes": [
-        "patch",
-        "digest"
-      ],
-      "automerge": true,
-      "automergeType": "pr"
-    },
-    {
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "automerge": false
-    },
-    {
-      "matchManagers": [
-        "pip_requirements",
-        "pep621"
-      ],
+      "matchManagers": ["pip_requirements"],
       "groupName": "Python packages",
-      "addLabels": [
-        "python"
-      ]
+      "addLabels": ["python"]
     },
     {
-      "matchManagers": [
-        "npm"
-      ],
+      "matchManagers": ["npm"],
       "groupName": "npm packages",
-      "addLabels": [
-        "javascript"
-      ]
+      "addLabels": ["javascript"]
     }
   ]
 }

@@ -1,5 +1,26 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "enabledManagers": ["pip_requirements"]
+  "timezone": "Europe/Amsterdam",
+  "forkProcessing": "enabled",
+  "pinDigests": true,
+  "assigneesFromCodeOwners": true,
+  "reviewersFromCodeOwners": true,
+  "automerge": true,
+  "automergeType": "pr",
+  "semanticCommits": "enabled",
+  "enabledManagers": ["pip_requirements", "github-actions"],
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "addLabels": ["github-actions"]
+    },
+    {
+      "matchManagers": ["pip_requirements"],
+      "groupName": "Python packages",
+      "addLabels": ["python"]
+    }
+  ]
 }

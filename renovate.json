@@ -9,7 +9,7 @@
   "automerge": true,
   "automergeType": "pr",
   "semanticCommits": "enabled",
-  "enabledManagers": ["pip_requirements", "github-actions"],
+  "enabledManagers": ["pep621", "github-actions"],
   "labels": ["dependencies"],
   "packageRules": [
     {
@@ -18,7 +18,7 @@
       "addLabels": ["github-actions"]
     },
     {
-      "matchManagers": ["pip_requirements"],
+      "matchManagers": ["pep621"],
       "groupName": "Python packages",
       "addLabels": ["python"]
     }

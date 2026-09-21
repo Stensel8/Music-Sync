@@ -134,6 +134,16 @@ ruff check . && ruff format --check . && pyright
 
 See [docs/architecture.md](docs/architecture.md) for how the code is laid out.
 
-## License and credits
+## License
 
-[AGPL-3.0](LICENSE). csv2tidal was inspired by [RZetko's gist](https://gist.github.com/RZetko/71801a20188e842ef03bed3b6d7a297f). The tidalapi-based login in its earlier versions was adapted from [spotify_to_tidal](https://github.com/spotify2tidal/spotify_to_tidal); that code has since been replaced.
+[AGPL-3.0](LICENSE). The license came with the original csv2tidal.
+
+## Credits
+
+Music-Sync brings two earlier projects together, and stands on the work of several people:
+
+- **csv2tidal**, the script this repository started as (December 2022). The repository and its license were created by [Nugman](https://github.com/Nugman), and the first version of the script and its README were written by roland.behme. Their commits are still part of this repository's history.
+  - Their own credits still apply: *"The inspiration to write this script came from [RZetko](https://gist.github.com/RZetko/71801a20188e842ef03bed3b6d7a297f), login code was borrowed from [spotify_to_tidal](https://github.com/timrae/spotify_to_tidal)."* That project is by [Tim Rae](https://github.com/timrae) and now lives at [spotify2tidal/spotify_to_tidal](https://github.com/spotify2tidal/spotify_to_tidal). The borrowed login code has since been replaced.
+- **The first Music-Sync**, a Flask prototype that copied Spotify tracks to Tidal, and the merged tool you are looking at now are by [Sten Tijhuis](https://github.com/Stensel8) (Stensel8).
+- **[tidalapi](https://github.com/EbbLabs/python-tidal)** (python-tidal, LGPL-3.0), the unofficial Tidal library that csv2tidal and the first Music-Sync were built on, by its maintainers and contributors. Music-Sync itself now talks to Tidal's official API.
+- The web interface is styled with [Tailwind CSS](https://tailwindcss.com) and [daisyUI](https://daisyui.com), loaded from a CDN.

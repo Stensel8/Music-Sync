@@ -1,0 +1,131 @@
+import pytest
+
+from musicsync import cli
+from musicsync.config import Settings
+from musicsync.csvio import read_tracks, write_tracks
+from musicsync.errors import ApiError
+from musicsync.models import Track
+from musicsync.oauth import TokenStore
+from musicsync.services import Services
+
+from .support import ISRC_A, FakeProvider, FakeServices, track
+
+CATALOG = [
+    track("Song A", "Artist A", ids={"tidal": "1"}, isrc=ISRC_A),
+    track("Song B", "Artist B", ids={"tidal": "2"}),
+]
+
+
+def test_export_liked_songs_to_csv(tmp_path, capsys):
+    liked = [track("Song A", "Artist A", ids={"spotify": "spotify:track:1"}, isrc=ISRC_A, album="Album")]
+    services = FakeServices(tmp_path, spotify=FakeProvider("spotify", liked=liked))
+    out = tmp_path / "liked.csv"
+    assert cli.main(["export", "spotify", "--liked", "-o", str(out)], services) == 0
+    assert read_tracks(out) == liked
+    assert "1 tracks" in capsys.readouterr().out
+
+
+def test_export_all_writes_one_csv_per_playlist_and_skips_unreadable_ones(tmp_path, capsys):
+    spotify = FakeProvider("spotify", liked=[track("Liked one")])
+    spotify.existing_playlist("Road/trip: 2026", track("In playlist"))
+    services = FakeServices(tmp_path, spotify=spotify)
+
+    assert cli.main(["export", "spotify", "--all", "-o", str(tmp_path / "all")], services) == 0
+    assert sorted(p.name for p in (tmp_path / "all").iterdir()) == ["Liked Songs.csv", "Road_trip_ 2026.csv"]
+
+    spotify.readable = False
+    assert cli.main(["export", "spotify", "--all", "-o", str(tmp_path / "all2")], services) == 0
+    assert "skipping" in capsys.readouterr().err
+
+
+def test_export_one_playlist_by_name(tmp_path):
+    tidal = FakeProvider("tidal")
+    tidal.existing_playlist("Mix", track("In playlist"))
+    services = FakeServices(tmp_path, tidal=tidal)
+    out = tmp_path / "mix.csv"
+    assert cli.main(["export", "tidal", "--playlist", "mix", "-o", str(out)], services) == 0
+    assert [t.title for t in read_tracks(out)] == ["In playlist"]
+    assert cli.main(["export", "tidal", "--playlist", "missing", "-o", str(out)], services) == 1
+
+
+def test_import_a_csv2tidal_file(tmp_path, capsys):
+    csv_file = tmp_path / "albums.csv"
+    csv_file.write_text("Artist A,Song A\nNobody,Nothing\n", encoding="utf-8")
+    tidal = FakeProvider("tidal", CATALOG)
+    unmatched = tmp_path / "unmatched.csv"
+    args = ["import", "tidal", str(csv_file), "--playlist", "Mix", "-q", "--unmatched", str(unmatched)]
+    assert cli.main(args, FakeServices(tmp_path, tidal=tidal)) == 0
+    assert [tidal.native_id(t) for t in tidal.playlists_by_id["pl1"][1]] == ["1"]
+    assert "Mix: 1 matched, 1 not found; added 1" in capsys.readouterr().out
+    assert [t.title for t in read_tracks(unmatched)] == ["Nothing"]
+
+
+def test_import_dry_run_and_an_empty_file(tmp_path, capsys):
+    csv_file = tmp_path / "in.csv"
+    write_tracks(csv_file, [Track("Song A", ["Artist A"], isrc=ISRC_A)])
+    tidal = FakeProvider("tidal", CATALOG)
+    services = FakeServices(tmp_path, tidal=tidal)
+    assert cli.main(["import", "tidal", str(csv_file), "--dry-run", "-q"], services) == 0
+    assert tidal.playlists_by_id == {} and "would add 1" in capsys.readouterr().out
+
+    empty = tmp_path / "empty.csv"
+    empty.write_text("", encoding="utf-8")
+    assert cli.main(["import", "tidal", str(empty)], services) == 1
+
+
+def test_a_missing_csv_file_is_an_error_not_a_traceback(tmp_path, capsys):
+    services = FakeServices(tmp_path, tidal=FakeProvider("tidal"))
+    assert cli.main(["import", "tidal", str(tmp_path / "nope.csv")], services) == 1
+    assert "error:" in capsys.readouterr().err
+
+
+def test_transfer_between_services(tmp_path):
+    source = FakeProvider("spotify", liked=[Track("Song A", ["Artist A"], isrc=ISRC_A)])
+    target = FakeProvider("tidal", CATALOG)
+    services = FakeServices(tmp_path, spotify=source, tidal=target)
+    assert cli.main(["transfer", "spotify", "tidal", "--liked", "-q"], services) == 0
+    assert [name for name, _ in target.playlists_by_id.values()] == ["Liked Songs (from Spotify)"]
+    assert cli.main(["transfer", "spotify", "spotify", "--liked"], services) == 1
+
+
+def test_missing_credentials_are_explained_not_a_crash(tmp_path, capsys):
+    services = Services(Settings(), TokenStore(tmp_path / "tokens.json"))
+    assert cli.main(["playlists", "spotify"], services) == 1
+    assert "SPOTIFY_CLIENT_ID" in capsys.readouterr().err
+
+
+def test_status_and_logout_work_without_any_setup(tmp_path, capsys):
+    services = Services(Settings(), TokenStore(tmp_path / "tokens.json"))
+    assert cli.main(["status"], services) == 0
+    out = capsys.readouterr().out
+    assert "MISSING" in out and "not logged in" in out
+    assert cli.main(["logout", "tidal"], services) == 0
+
+
+def test_doctor_reports_failures_with_a_nonzero_exit(tmp_path, capsys):
+    class Denied(FakeProvider):
+        def lookup_isrcs(self, isrcs):
+            raise ApiError(403, "Forbidden")
+
+    tidal = Denied("tidal", CATALOG, liked=[track("Song A", "Artist A", ids={"tidal": "1"}, isrc=ISRC_A)])
+    assert cli.main(["doctor", "tidal"], FakeServices(tmp_path, tidal=tidal)) == 1
+    out = capsys.readouterr().out
+    assert "ok    read liked songs" in out and "FAIL  look up by ISRC: HTTP 403: Forbidden" in out
+
+
+def test_a_mistyped_command_gets_a_suggestion(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["tranfser", "spotify", "tidal"])
+    assert exc.value.code == 2
+    assert "transfer" in capsys.readouterr().err
+
+
+def test_help_lists_every_command(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--help"])
+    assert exc.value.code == 0
+    text = capsys.readouterr().out
+    assert all(
+        command in text
+        for command in ("login", "logout", "status", "playlists", "export", "import", "transfer", "web", "doctor")
+    )

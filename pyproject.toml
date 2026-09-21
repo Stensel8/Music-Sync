@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "music-sync"
+version = "0.2.0"
+description = "Move playlists and liked songs between Spotify, Tidal and CSV."
+readme = "README.md"
+requires-python = ">=3.14"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [{ name = "Sten Tijhuis" }]
+dependencies = ["requests>=2.33.1"]
+
+[project.optional-dependencies]
+web = ["flask>=3.1"]
+
+# Development tools (PEP 735): pip install -e . --group dev
+[dependency-groups]
+dev = ["flask>=3.1", "pytest>=8", "responses>=0.25", "ruff", "pyright"]
+
+[project.urls]
+Homepage = "https://github.com/Stensel8/Music-Sync"
+Issues = "https://github.com/Stensel8/Music-Sync/issues"
+
+[project.scripts]
+music-sync = "musicsync.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["musicsync*"]
+
+[tool.setuptools.package-data]
+musicsync = ["web/templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, bugbear, pyupgrade, simplify, ruff's own, comprehensions, pathlib
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "C4", "PTH"]
+
+[tool.pyright]
+include = ["musicsync", "tests"]
+pythonVersion = "3.14"
+typeCheckingMode = "standard"
+# Lets Pylance find the packages when the virtual environment sits in the project folder.
+venvPath = "."
+venv = ".venv"

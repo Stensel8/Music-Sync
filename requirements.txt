@@ -1,2 +1,0 @@
-requests>=2.33.1 # for tidalapi
-tidalapi==0.8.11

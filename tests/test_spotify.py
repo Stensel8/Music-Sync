@@ -132,3 +132,14 @@ def test_resolve_prefers_the_isrc_and_falls_back_to_a_text_search(spotify):
     responses.replace(responses.GET, f"{API}/search", json={"tracks": {"items": [sp_track("Song", "spotify:track:5")]}})
     by_text = spotify.resolve(Track("Song", ["Artist"], duration_ms=200000))
     assert by_text is not None and by_text.method == "search" and by_text.track.ids == {"spotify": "spotify:track:5"}
+
+
+@responses.activate
+def test_a_premium_refusal_is_explained_and_not_mistaken_for_someone_elses_playlist(spotify):
+    error = {"error": {"status": 403, "message": "Active premium subscription required for the owner of the app"}}
+    responses.get(f"{API}/me/tracks", status=403, json=error)
+    responses.get(f"{API}/playlists/p1/items", status=403, json=error)
+    with pytest.raises(ProviderError, match="Premium"):
+        list(spotify.liked_tracks())
+    with pytest.raises(ProviderError, match="Premium"):
+        list(spotify.playlist_tracks("p1"))

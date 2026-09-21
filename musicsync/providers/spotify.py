@@ -15,6 +15,12 @@ API = "https://api.spotify.com/v1"
 PAGE_SIZE = 50
 ADD_BATCH = 100  # tracks per "add to playlist" request
 
+# Since February 2026 Spotify refuses apps whose owner has no Premium subscription, with a plain 403.
+PREMIUM_REQUIRED = (
+    "Spotify only lets apps whose owner has a Premium subscription use its API (a rule since February 2026). "
+    'See "Spotify\'s API needs Premium" in the README for what you can do.'
+)
+
 
 class SpotifyOAuth(OAuthClient):
     name = "spotify"
@@ -51,17 +57,26 @@ class SpotifyProvider(Provider):
     def __init__(self, api: ApiClient):
         self.api = api
 
+    def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        """``ApiClient.request``, but it explains the Premium rule when that is what refused us."""
+        try:
+            return self.api.request(method, path, **kwargs)
+        except ApiError as exc:
+            if exc.status == 403 and "premium" in exc.message.lower():
+                raise ProviderError(PREMIUM_REQUIRED) from exc
+            raise
+
     @cached_property
     def _me(self) -> str:
         """The user's id: it tells your own playlists from the ones you merely follow."""
-        return self.api.request("GET", "/me")["id"]
+        return self._request("GET", "/me")["id"]
 
     def _pages(self, path: str) -> Iterator[dict[str, Any]]:
         """Every page of a list endpoint, following the "next" links Spotify sends."""
-        page = self.api.request("GET", path, params={"limit": PAGE_SIZE})
+        page = self._request("GET", path, params={"limit": PAGE_SIZE})
         yield page
         while next_url := page.get("next"):
-            page = self.api.request("GET", next_url)  # a complete URL, parameters included
+            page = self._request("GET", next_url)  # a complete URL, parameters included
             yield page
 
     def liked_tracks(self) -> Iterator[Track]:
@@ -103,7 +118,7 @@ class SpotifyProvider(Provider):
 
     def search(self, query: str) -> list[Track]:
         # Apps in development mode get at most 10 results per search request.
-        data = self.api.request("GET", "/search", params={"q": query, "type": "track", "limit": 10})
+        data = self._request("GET", "/search", params={"q": query, "type": "track", "limit": 10})
         return [track for item in data.get("tracks", {}).get("items", []) if (track := parse_track(item))]
 
     def lookup_isrcs(self, isrcs: Collection[str]) -> dict[str, list[Track]]:
@@ -111,12 +126,10 @@ class SpotifyProvider(Provider):
         return {isrc: found for isrc in isrcs if (found := self.search(f"isrc:{isrc}"))}
 
     def create_playlist(self, name: str, description: str = "") -> str:
-        data = self.api.request(
-            "POST", "/me/playlists", json={"name": name, "description": description, "public": False}
-        )
+        data = self._request("POST", "/me/playlists", json={"name": name, "description": description, "public": False})
         return data["id"]
 
     def add_to_playlist(self, playlist_id: str, tracks: list[Track]) -> None:
         uris = [uri for track in tracks if (uri := self.native_id(track))]
         for batch in batched(uris, ADD_BATCH, strict=False):
-            self.api.request("POST", f"/playlists/{playlist_id}/items", json={"uris": list(batch)})
+            self._request("POST", f"/playlists/{playlist_id}/items", json={"uris": list(batch)})

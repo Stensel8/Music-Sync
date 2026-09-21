@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Music-Sync Dashboard{% endblock %}
+
+{# A select with the services that are logged in, under a placeholder. #}
+{% macro service_select(id, placeholder) %}
+<select id="{{ id }}" class="select select-bordered select-sm" required>
+  <option value="">{{ placeholder }}</option>
+  {% for a in accounts if a.connected %}<option value="{{ a.name }}">{{ a.label }}</option>{% endfor %}
+</select>
+{% endmacro %}
+
+{% block content %}
+<h1 class="text-3xl font-semibold mb-8 text-base-content">Dashboard</h1>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl">
+  {% for a in accounts %}
+  <div class="card bg-base-100 border border-base-300 shadow-md">
+    <div class="card-body">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="card-title text-base-content">{{ a.label }}</h2>
+        {% if a.connected %}<span class="badge badge-success">Verbonden</span>
+        {% elif not a.configured %}<span class="badge badge-warning">Client-ID ontbreekt</span>
+        {% else %}<span class="badge badge-ghost">Niet verbonden</span>{% endif %}
+      </div>
+      {% if a.connected %}
+        <a href="{{ url_for('service.account', service=a.name) }}" class="btn btn-sm btn-outline w-full">Account bekijken</a>
+      {% elif a.configured %}
+        <a href="{{ url_for('service.login', service=a.name) }}" class="btn btn-sm btn-primary w-full">Verbinden</a>
+      {% else %}
+        <a href="{{ url_for('pages.login_page') }}" class="btn btn-sm btn-outline w-full">Hoe stel ik dit in?</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="divider my-8 max-w-3xl"></div>
+
+<div class="grid grid-cols-1 gap-6 max-w-3xl">
+  <div class="card bg-base-100 border border-base-300 shadow-md">
+    <div class="card-body">
+      <h2 class="card-title text-base-content mb-1">Exporteren naar CSV</h2>
+      <p class="text-base-content/60 text-sm mb-2">Bewaar je liked songs of een playlist als CSV-bestand, met ISRC voor nauwkeurig terugvinden.</p>
+      <form id="export-form" class="flex flex-wrap gap-2 items-end">
+        {{ service_select('export-service', 'Kies dienst…') }}
+        <select id="export-playlist" class="select select-bordered select-sm"><option value="">Liked songs</option></select>
+        <button class="btn btn-primary btn-sm" type="submit">Downloaden</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card bg-base-100 border border-base-300 shadow-md">
+    <div class="card-body">
+      <h2 class="card-title text-base-content mb-1">CSV importeren</h2>
+      <p class="text-base-content/60 text-sm mb-2">Voeg de nummers uit een CSV toe aan een playlist. Wat er al in staat wordt overgeslagen.</p>
+      <form id="import-form" class="flex flex-wrap gap-2 items-end">
+        {{ service_select('import-service', 'Kies dienst…') }}
+        <input id="import-playlist" class="input input-bordered input-sm" placeholder="Naam van de playlist" value="Music-Sync import">
+        <input id="import-file" type="file" accept=".csv,text/csv" class="file-input file-input-bordered file-input-sm" required>
+        <button class="btn btn-primary btn-sm" type="submit">Importeren</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card bg-base-100 border border-base-300 shadow-md">
+    <div class="card-body">
+      <h2 class="card-title text-base-content mb-1">Overzetten</h2>
+      <p class="text-base-content/60 text-sm mb-2">Kopieer liked songs of een playlist rechtstreeks naar de andere dienst.</p>
+      <form id="transfer-form" class="flex flex-wrap gap-2 items-end">
+        {{ service_select('transfer-source', 'Van…') }}
+        <select id="transfer-playlist" class="select select-bordered select-sm"><option value="">Liked songs</option></select>
+        {{ service_select('transfer-target', 'Naar…') }}
+        <input id="transfer-name" class="input input-bordered input-sm" placeholder="Naam van de nieuwe playlist (optioneel)">
+        <button class="btn btn-primary btn-sm" type="submit">Overzetten</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="job" class="card bg-base-100 border border-base-300 shadow-md" hidden>
+    <div class="card-body">
+      <progress id="job-bar" class="progress progress-primary w-full" value="0" max="1"></progress>
+      <p id="job-text" class="text-sm"></p>
+      <div id="job-unmatched" hidden>
+        <p class="text-sm font-semibold mt-2">Niet gevonden:</p>
+        <ul id="job-unmatched-list" class="text-sm list-disc ml-5"></ul>
+        <a id="job-unmatched-link" class="btn btn-xs btn-outline mt-2">Alles downloaden (CSV)</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+// Asking for JSON makes the server answer errors as JSON too, instead of as an error page.
+const api = (url, init = {}) => fetch(url, { ...init, headers: { Accept: 'application/json', ...init.headers } });
+
+async function json(resp) {
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.message);
+  return data;
+}
+
+function show(text, { error = false, progress = false } = {}) {
+  $('job').hidden = false;
+  $('job-bar').hidden = !progress;
+  $('job-unmatched').hidden = true;
+  $('job-text').textContent = text;
+  $('job-text').classList.toggle('text-error', error);
+}
+
+// Fill a playlist picker with the readable playlists of a service.
+async function fillPlaylists(service, select) {
+  select.replaceChildren(new Option('Liked songs', ''));
+  if (!service) return;
+  try {
+    for (const p of await json(await api(`/${service}/playlists`))) {
+      if (p.readable) select.add(new Option(`${p.name} (${p.track_count ?? '?'})`, p.id));
+    }
+  } catch (err) {
+    show(err.message, { error: true });
+  }
+}
+
+// Poll a background job until it is done, and show what it found.
+async function follow(id) {
+  for (;;) {
+    const job = await json(await api(`/jobs/${id}`));
+    if (job.status === 'running') {
+      show(`Bezig… ${job.done}/${job.total} ${job.current}`, { progress: true });
+      $('job-bar').max = job.total || 1;
+      $('job-bar').value = job.done;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      continue;
+    }
+    show(job.message, { error: job.status === 'error' });
+    if (job.unmatched_count) {
+      // textContent, never innerHTML: track titles come from other people's playlists.
+      $('job-unmatched-list').replaceChildren(
+        ...job.unmatched.map((text) => Object.assign(document.createElement('li'), { textContent: text })),
+      );
+      $('job-unmatched-link').href = `/jobs/${id}/unmatched.csv`;
+      $('job-unmatched').hidden = false;
+    }
+    return;
+  }
+}
+
+// Start a background job (an import or a transfer) and follow it to the end.
+async function start(url, init) {
+  try {
+    await follow((await json(await api(url, { method: 'POST', ...init }))).id);
+  } catch (err) {
+    show(err.message, { error: true });
+  }
+}
+
+$('export-service').addEventListener('change', (e) => fillPlaylists(e.target.value, $('export-playlist')));
+$('transfer-source').addEventListener('change', (e) => fillPlaylists(e.target.value, $('transfer-playlist')));
+
+$('export-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const playlist = $('export-playlist').value;
+  window.location.href = `/${$('export-service').value}/export` + (playlist ? `?playlist=${encodeURIComponent(playlist)}` : '');
+});
+
+$('import-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const form = new FormData();
+  form.append('file', $('import-file').files[0]);
+  form.append('playlist', $('import-playlist').value);
+  start(`/${$('import-service').value}/import`, { body: form });
+});
+
+$('transfer-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  start('/transfer', {
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      source: $('transfer-source').value,
+      target: $('transfer-target').value,
+      playlist: $('transfer-playlist').value || null,
+      name: $('transfer-name').value,
+    }),
+  });
+});
+</script>
+{% endblock %}

@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import requests
 
-from .config import config_dir
+from .config import config_dir, write_private
 from .errors import LoginError, NetworkError, NotLoggedIn
 from .http import error_message
 
@@ -50,12 +50,8 @@ class TokenStore:
         return data if isinstance(data, dict) else {}
 
     def _write(self, data: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
-        # Created as 0600 from the start, so the tokens are never readable by others, not even briefly.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2)
+        write_private(tmp, json.dumps(data, indent=2))
         tmp.replace(self.path)  # atomic: a crash cannot leave half a file
 
     def load(self, service: str) -> Token | None:
@@ -138,7 +134,8 @@ def loopback_login(
         server = _CallbackServer((host, target.port or 80), target.path)
     except OSError as exc:
         raise LoginError(
-            f"Cannot listen on {host}:{target.port} ({exc}). Is the web interface or another login still running?"
+            f"Cannot listen on {host}:{target.port} ({exc}). If the web interface is running, log in there instead, "
+            "or stop it first."
         ) from exc
 
     with server:  # closes the socket on the way out

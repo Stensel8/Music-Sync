@@ -1,0 +1,126 @@
+/* The whole look of the web interface, in one file, so the page loads nothing from other sites.
+   The colours are the "night" theme of daisyUI. */
+
+:root {
+  color-scheme: dark;
+  --page: oklch(19.3% 0.037 265.75);
+  --surface: oklch(20.77% 0.0398 265.75);
+  --line: oklch(17.86% 0.0342 265.75);
+  --text: oklch(84.15% 0.008 265.75);
+  --muted: oklch(84.15% 0.008 265.75 / 0.6);
+  --border: oklch(84.15% 0.008 265.75 / 0.2);
+  --accent: oklch(75.35% 0.139 232.66);
+  --on-accent: oklch(15.07% 0.0278 232.66);
+  --ok: oklch(78.45% 0.1325 181.91);
+  --on-ok: oklch(15.69% 0.0265 181.91);
+  --warn: oklch(83.24% 0.1396 82.95);
+  --on-warn: oklch(16.65% 0.0279 82.95);
+  --error: oklch(71.79% 0.1703 13.12);
+}
+
+*, ::before, ::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+a { color: inherit; text-decoration: none; }
+h1, h2, p { margin: 0; }
+h1 { margin-bottom: 1.5rem; font-size: 1.875rem; font-weight: 600; }
+h2 { font-size: 1.25rem; font-weight: 600; }
+code { word-break: break-all; }
+hr { max-width: 48rem; margin: 2rem 0; border: 0; border-top: 1px solid var(--border); }
+
+/* page frame */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  min-height: 4rem; padding: 0.5rem 1rem;
+  background: var(--surface); box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+}
+.topbar nav { display: flex; gap: 0.25rem; }
+.brand, .topbar nav a { padding: 0.5rem 0.75rem; border-radius: 0.5rem; }
+.brand { font-size: 1.25rem; }
+.topbar nav a { font-size: 0.875rem; }
+.brand:hover, .topbar nav a:hover { background: var(--line); }
+.page { max-width: 72rem; margin: 2rem auto 0; padding: 0 1rem 3rem; }
+.page > .row { margin-bottom: 2rem; }
+
+/* cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1.5rem; max-width: 48rem; }
+.cards.single { grid-template-columns: 1fr; }
+h2 + .cards { margin-top: 1rem; }
+.cards.playlists { grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 1rem; max-width: none; }
+.card {
+  display: flex; flex-direction: column; gap: 0.5rem; padding: 1.5rem;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 1rem;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+}
+.card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+.name { font-size: 1.125rem; font-weight: 700; }
+
+.badge {
+  display: inline-flex; align-items: center; height: 1.25rem; padding: 0 0.6rem;
+  border-radius: 1rem; background: var(--page); font-size: 0.875rem;
+}
+.badge.ok { background: var(--ok); color: var(--on-ok); }
+.badge.warn { background: var(--warn); color: var(--on-warn); }
+
+/* buttons and form controls */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  height: 2rem; padding: 0 0.75rem; border: 1px solid currentColor; border-radius: 0.5rem;
+  background: transparent; color: var(--text); font: inherit; font-size: 0.875rem; cursor: pointer;
+}
+.btn:hover { background: var(--border); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.spotify { background: #1db954; border-color: #1db954; color: #000; }
+.btn.primary:hover, .btn.spotify:hover { filter: brightness(1.1); }
+.btn.wide { width: 100%; }
+.btn.big { height: 3rem; }
+.btn.tiny { height: 1.5rem; padding: 0 0.5rem; font-size: 0.75rem; }
+
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+select, input {
+  height: 2rem; padding: 0 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem;
+  background: var(--surface); color: var(--text); font: inherit; font-size: 0.875rem;
+}
+input[type="file"] { padding: 0 0.5rem 0 0; line-height: 2rem; }
+input[type="file"]::file-selector-button {
+  height: 100%; margin-right: 0.75rem; padding: 0 0.75rem; border: 0; border-right: 1px solid var(--border);
+  background: var(--page); color: var(--text); font: inherit; cursor: pointer;
+}
+
+progress {
+  width: 100%; height: 0.5rem; appearance: none; border: 0; border-radius: 1rem; overflow: hidden;
+  background: var(--border); color: var(--accent);
+}
+progress::-webkit-progress-bar { background: var(--border); }
+progress::-webkit-progress-value, progress::-moz-progress-bar { background: var(--accent); }
+
+/* messages */
+.alert { padding: 1rem; border: 1px solid var(--border); border-radius: 1rem; font-size: 0.875rem; }
+.alert p + p { margin-top: 0.25rem; }
+.alert.warn { border-color: oklch(83.24% 0.1396 82.95 / 0.4); background: oklch(83.24% 0.1396 82.95 / 0.12); }
+.alert.error { border-color: oklch(71.79% 0.1703 13.12 / 0.4); background: oklch(71.79% 0.1703 13.12 / 0.12); }
+.list { margin: 0; padding-left: 1.25rem; list-style: disc; font-size: 0.875rem; }
+
+/* small helpers */
+.muted { color: var(--muted); }
+.small { font-size: 0.875rem; }
+.tiny { font-size: 0.75rem; }
+.strong { font-weight: 600; }
+.center { text-align: center; }
+.error { color: var(--error); }
+.icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
+
+/* login and error pages */
+.login { display: flex; align-items: center; justify-content: center; min-height: 70vh; }
+.login > div { width: 100%; max-width: 24rem; }
+.login h1 { margin-bottom: 0.5rem; text-align: center; font-size: 2.25rem; font-weight: 700; }
+.login .tagline { margin-bottom: 2rem; text-align: center; }
+.login .card { gap: 1rem; }
+.notice { display: flex; flex-direction: column; align-items: flex-start; gap: 1.5rem; max-width: 36rem; margin: 0 auto; }

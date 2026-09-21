@@ -1,4 +1,4 @@
-"""Settings: environment variables override the optional ``config.toml``."""
+"""Settings from ``config.toml`` in the user's config folder. Environment variables override the file."""
 
 import os
 import re
@@ -10,10 +10,11 @@ from pathlib import Path
 from .errors import ConfigError
 
 SERVICES = ("spotify", "tidal")
+TEMPLATE = Path(__file__).with_name("config_template.toml")
 
 
 def config_dir() -> Path:
-    """Where Music-Sync keeps its configuration and login tokens."""
+    """Where Music-Sync keeps its settings and logins."""
     if os.name == "nt":
         base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
     else:
@@ -21,8 +22,31 @@ def config_dir() -> Path:
     return base / "music-sync"
 
 
+def config_path() -> Path:
+    return config_dir() / "config.toml"
+
+
+def write_private(path: Path, text: str, *, exclusive: bool = False) -> None:
+    """Write a file that only the current user can read, created that way from the start."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_EXCL if exclusive else os.O_TRUNC)
+    with os.fdopen(os.open(path, flags, 0o600), "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def ensure_config_file() -> bool:
+    """Create ``config.toml`` from the template when it is missing. True when it was just created."""
+    if config_path().exists():
+        return False
+    try:
+        write_private(config_path(), TEMPLATE.read_text(encoding="utf-8"), exclusive=True)
+    except OSError:
+        return False  # a folder we cannot write to: carry on without a file
+    return True
+
+
 def _locale_country() -> str:
-    """The country of the system locale ("nl_NL.UTF-8" gives "NL"); a sensible default for Tidal."""
+    """The country of the system locale ("nl_NL.UTF-8" gives "NL"), else "US"."""
     for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
         if match := re.match(r"[a-z]{2,3}_([A-Z]{2})", os.environ.get(var, "")):
             return match.group(1)
@@ -41,17 +65,17 @@ class ServiceConfig:
 @dataclass(frozen=True, slots=True)
 class Settings:
     services: Mapping[str, ServiceConfig] = field(default_factory=dict)
-    country: str = "US"  # ISO 3166-1 alpha-2: decides which Tidal catalogue is searched
+    country: str = "US"  # decides which Tidal catalogue is searched
 
     def is_configured(self, service: str) -> bool:
         return bool(self.services.get(service, ServiceConfig()).client_id)
 
     def require(self, service: str) -> ServiceConfig:
-        """The credentials of ``service``, or a ConfigError that explains how to set them up."""
+        """The credentials of ``service``, or a ConfigError that says how to set them."""
         if not self.is_configured(service):
             raise ConfigError(
                 f"{service.title()} client ID missing. Set {service.upper()}_CLIENT_ID or add "
-                f"client_id under [{service}] in {config_dir() / 'config.toml'} (see the README)."
+                f"client_id under [{service}] in {config_path()} (see the README)."
             )
         return self.services[service]
 
@@ -59,7 +83,7 @@ class Settings:
 def load_settings(path: Path | None = None, env: Mapping[str, str] | None = None) -> Settings:
     """Read ``config.toml`` (if there is one) and let environment variables override it."""
     env = os.environ if env is None else env
-    path = path or config_dir() / "config.toml"
+    path = path or config_path()
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

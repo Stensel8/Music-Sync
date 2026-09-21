@@ -27,6 +27,13 @@ class ImportResult:
     added: int = 0
     dry_run: bool = False
 
+    def summary(self) -> str:
+        """One line: what was found, and what was (or would be) added."""
+        verb = "would add" if self.dry_run else "added"
+        counts = [(self.already_there, "already there"), (self.duplicates, "repeated in the input")]
+        parts = [f"{verb} {self.added}", *(f"{n} {what}" for n, what in counts if n)]
+        return f"{self.playlist_name}: {len(self.matched)} matched, {len(self.unmatched)} not found; {', '.join(parts)}"
+
 
 def select_tracks(
     provider: Provider,
@@ -36,24 +43,32 @@ def select_tracks(
     on_skip: Callable[[str], None] | None = None,
 ) -> list[tuple[str, list[Track]]]:
     """The (name, tracks) pairs to work on: liked songs, one playlist (by name or id), or, with
-    neither asked for, the liked songs plus every playlist that can be read."""
+    neither asked for, the liked songs plus every playlist that can be read.
+    Empty ones are left out: asking for one is an error, and among the rest they are reported to ``on_skip``."""
     if liked:
-        return [(LIKED, list(provider.liked_tracks()))]
-    if playlist:
+        found = [(LIKED, list(provider.liked_tracks()))]
+    elif playlist:
         info = provider.find_playlist(playlist)
         if info is None:
             raise ProviderError(f"No playlist with name or id {playlist!r} on {provider.name}.")
         if not info.readable:
             raise ProviderError(f'"{info.name}" is not yours to read (you neither own nor collaborate on it).')
-        return [(info.name, list(provider.playlist_tracks(info.id)))]
+        found = [(info.name, list(provider.playlist_tracks(info.id)))]
+    else:
+        found = [(LIKED, list(provider.liked_tracks()))]
+        for info in provider.playlists():
+            if info.readable:
+                found.append((info.name, list(provider.playlist_tracks(info.id))))
+            elif on_skip:
+                on_skip(f"skipping {info.name!r}: you neither own nor collaborate on it")
 
-    selected = [(LIKED, list(provider.liked_tracks()))]
-    for info in provider.playlists():
-        if info.readable:
-            selected.append((info.name, list(provider.playlist_tracks(info.id))))
-        elif on_skip:
-            on_skip(f"skipping {info.name!r}: you neither own nor collaborate on it")
-    return selected
+    empty = [name for name, tracks in found if not tracks]
+    if empty and (liked or playlist):
+        raise ProviderError(f'"{empty[0]}" is empty.')
+    for name in empty:
+        if on_skip:
+            on_skip(f"skipping {name!r}: it is empty")
+    return [(name, tracks) for name, tracks in found if tracks]
 
 
 def resolve_tracks(

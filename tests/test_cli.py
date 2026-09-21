@@ -1,7 +1,7 @@
 import pytest
 
 from musicsync import cli
-from musicsync.config import Settings
+from musicsync.config import Settings, config_path
 from musicsync.csvio import read_tracks, write_tracks
 from musicsync.errors import ApiError
 from musicsync.models import Track
@@ -38,6 +38,28 @@ def test_export_all_writes_one_csv_per_playlist_and_skips_unreadable_ones(tmp_pa
     assert "skipping" in capsys.readouterr().err
 
 
+def test_empty_lists_are_not_exported_and_are_flagged(tmp_path, capsys):
+    spotify = FakeProvider("spotify", liked=[track("Liked one")])
+    spotify.existing_playlist("Empty")
+    services = FakeServices(tmp_path, spotify=spotify)
+
+    assert cli.main(["export", "spotify", "--all", "-o", str(tmp_path / "all")], services) == 0
+    assert [p.name for p in (tmp_path / "all").iterdir()] == ["Liked Songs.csv"]
+    assert "skipping 'Empty': it is empty" in capsys.readouterr().err
+
+    out = tmp_path / "empty.csv"
+    assert cli.main(["export", "spotify", "--playlist", "Empty", "-o", str(out)], services) == 1
+    assert not out.exists() and '"Empty" is empty' in capsys.readouterr().err
+
+
+def test_transfer_flags_empty_playlists(tmp_path, capsys):
+    spotify = FakeProvider("spotify", liked=[track("Liked one")])
+    spotify.existing_playlist("Empty")
+    services = FakeServices(tmp_path, spotify=spotify, tidal=FakeProvider("tidal", CATALOG))
+    assert cli.main(["transfer", "spotify", "tidal", "--all", "-q"], services) == 0
+    assert "skipping 'Empty': it is empty" in capsys.readouterr().err
+
+
 def test_export_one_playlist_by_name(tmp_path):
     tidal = FakeProvider("tidal")
     tidal.existing_playlist("Mix", track("In playlist"))
@@ -48,7 +70,7 @@ def test_export_one_playlist_by_name(tmp_path):
     assert cli.main(["export", "tidal", "--playlist", "missing", "-o", str(out)], services) == 1
 
 
-def test_import_a_csv2tidal_file(tmp_path, capsys):
+def test_import_a_file_without_a_header_row(tmp_path, capsys):
     csv_file = tmp_path / "albums.csv"
     csv_file.write_text("Artist A,Song A\nNobody,Nothing\n", encoding="utf-8")
     tidal = FakeProvider("tidal", CATALOG)
@@ -100,6 +122,24 @@ def test_status_and_logout_work_without_any_setup(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "MISSING" in out and "not logged in" in out
     assert cli.main(["logout", "tidal"], services) == 0
+
+
+def test_status_says_where_the_settings_file_belongs(tmp_path, capsys):
+    services = Services(Settings(), TokenStore(tmp_path / "tokens.json"))
+    cli.main(["status"], services)
+    assert f"settings are read from {config_path()} (no such file yet" in capsys.readouterr().out
+    config_path().parent.mkdir(parents=True)
+    config_path().write_text("", encoding="utf-8")
+    cli.main(["status"], services)
+    assert f"settings are read from {config_path()}\n" in capsys.readouterr().out
+
+
+def test_the_first_run_makes_the_settings_file_and_says_so(capsys):
+    assert cli.main(["status"]) == 0
+    assert f"Created {config_path()}" in capsys.readouterr().err
+    assert config_path().exists()
+    assert cli.main(["status"]) == 0
+    assert "Created" not in capsys.readouterr().err
 
 
 def test_doctor_reports_failures_with_a_nonzero_exit(tmp_path, capsys):

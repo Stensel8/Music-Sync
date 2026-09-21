@@ -1,9 +1,4 @@
-"""Read and write track lists as CSV.
-
-Music-Sync writes a header row (see ``COLUMNS``). Reading also accepts the header names other
-exporters use (``Track Name``, ``Artist Name(s)`` ...) and the original csv2tidal format: no
-header row, just ``artist,title``.
-"""
+"""Read and write track lists as CSV."""
 
 import csv
 import re
@@ -56,8 +51,7 @@ def parse_csv(fh: TextIO, source: str = "the CSV") -> list[Track]:
     if "title" in header:
         columns, body = header, rows[1:]
     else:
-        # The original csv2tidal format has no header row: "artist,title".
-        columns, body = ["artists", "title"], rows
+        columns, body = ["artists", "title"], rows  # no header row: "artist,title"
     records = ({c: v.strip() for c, v in zip(columns, row, strict=False) if c} for row in body)
     return [track for record in records if (track := _track(record))]
 

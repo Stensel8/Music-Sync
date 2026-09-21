@@ -7,15 +7,13 @@ from urllib.parse import quote
 from flask import Blueprint, Response, abort, current_app, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.wrappers import Response as WerkzeugResponse
 
-from ..config import SERVICES
+from ..config import SERVICES, config_path
 from ..csvio import parse_csv, slug, write_csv
 from ..errors import CsvError, NotLoggedIn, ProviderError
 from ..oauth import pkce_pair
 from ..services import Services
-from ..sync import LIKED, ImportResult, import_tracks, select_tracks
+from ..sync import LIKED, import_tracks, select_tracks
 from .jobs import Job, JobManager
-
-LABELS = {"spotify": "Spotify", "tidal": "Tidal"}
 
 pages = Blueprint("pages", __name__)
 # Everything that belongs to one service lives under /spotify/... or /tidal/...
@@ -36,23 +34,12 @@ def _accounts() -> list[dict]:
     return [
         {
             "name": name,
-            "label": LABELS[name],
+            "label": name.title(),
             "configured": services.settings.is_configured(name),
             "connected": services.store.load(name) is not None,
         }
         for name in SERVICES
     ]
-
-
-def _summary(result: ImportResult) -> str:
-    """The one-line outcome of an import, shown when its job is done."""
-    text = f"{result.playlist_name}: {len(result.matched)} gevonden, {len(result.unmatched)} niet gevonden; "
-    text += f"{result.added} toegevoegd"
-    if result.already_there:
-        text += f", {result.already_there} stonden er al in"
-    if result.duplicates:
-        text += f", {result.duplicates} dubbel in de bron"
-    return text
 
 
 def _start(work) -> tuple[Response, int]:
@@ -70,7 +57,7 @@ def dashboard() -> str:
 
 @pages.get("/login")
 def login_page() -> str:
-    return render_template("login.html", accounts=_accounts())
+    return render_template("login.html", accounts=_accounts(), config_file=config_path())
 
 
 @pages.post("/transfer")
@@ -78,17 +65,17 @@ def transfer() -> tuple[Response, int]:
     data = request.get_json(silent=True) or {}
     source, target = data.get("source"), data.get("target")
     if source not in SERVICES or target not in SERVICES or source == target:
-        raise ProviderError("Kies twee verschillende diensten.")
+        raise ProviderError("Choose two different services.")
     playlist = data.get("playlist") or None
     name = (data.get("name") or "").strip()
     source_provider, target_provider = _services().provider(source), _services().provider(target)
 
     def work(job: Job) -> str:
         ((source_name, tracks),) = select_tracks(source_provider, liked=not playlist, playlist=playlist)
-        destination = name or (f"{LIKED} (from {LABELS[source]})" if source_name == LIKED else source_name)
+        destination = name or (f"{LIKED} (from {source.title()})" if source_name == LIKED else source_name)
         result = import_tracks(target_provider, tracks, destination, progress=job.progress)
         job.unmatched = result.unmatched
-        return _summary(result)
+        return result.summary()
 
     return _start(work)
 
@@ -96,7 +83,7 @@ def transfer() -> tuple[Response, int]:
 @pages.get("/jobs/<job_id>")
 def job_status(job_id: str) -> Response:
     if (job := _jobs().get(job_id)) is None:
-        abort(404, "Onbekende taak")
+        abort(404, "Unknown job")
     return jsonify(
         status=job.status,
         done=job.done,
@@ -111,7 +98,7 @@ def job_status(job_id: str) -> Response:
 @pages.get("/jobs/<job_id>/unmatched.csv")
 def job_unmatched(job_id: str) -> Response:
     if (job := _jobs().get(job_id)) is None:
-        abort(404, "Onbekende taak")
+        abort(404, "Unknown job")
     out = io.StringIO()
     write_csv(out, job.unmatched)
     return Response(
@@ -134,11 +121,11 @@ def login(service: str) -> WerkzeugResponse:
 def callback(service: str) -> WerkzeugResponse:
     saved = session.pop(f"{service}_oauth", None)  # popped: a login can only be completed once
     if error := request.args.get("error"):
-        raise ProviderError(f"Inloggen bij {LABELS[service]} is geweigerd: {error}")
+        raise ProviderError(f"Login to {service.title()} was refused: {error}")
     if not saved or request.args.get("state") != saved["state"]:
-        raise ProviderError("State komt niet overeen (mogelijk een CSRF-aanval). Probeer opnieuw in te loggen.")
+        raise ProviderError("State mismatch (possible CSRF attack). Please log in again.")
     if not (code := request.args.get("code")):
-        raise ProviderError("Geen autorisatiecode ontvangen.")
+        raise ProviderError("No authorization code received.")
     services = _services()
     services.store.save(service, services.oauth(service).exchange(code, saved["verifier"]))
     return redirect(url_for("service.account", service=service))
@@ -150,7 +137,7 @@ def account(service: str) -> str | WerkzeugResponse:
         playlists = _services().provider(service).playlists()
     except NotLoggedIn:
         return redirect(url_for("service.login", service=service))
-    return render_template("account.html", service=service, label=LABELS[service], playlists=playlists)
+    return render_template("account.html", service=service, label=service.title(), playlists=playlists)
 
 
 @service_pages.post("/logout")  # a POST, so that a link on some other page cannot log you out
@@ -184,19 +171,19 @@ def export(service: str) -> Response:
 def import_csv(service: str) -> tuple[Response, int]:
     upload = request.files.get("file")
     if not upload or not upload.filename:
-        raise CsvError("Kies eerst een CSV-bestand.")
+        raise CsvError("Choose a CSV file first.")
     try:
         text = upload.stream.read().decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise CsvError("Het bestand is niet UTF-8.") from exc
+        raise CsvError("The file is not UTF-8.") from exc
     if not (tracks := parse_csv(io.StringIO(text, newline=""), upload.filename)):
-        raise CsvError("Er staan geen nummers in dit bestand.")
+        raise CsvError("There are no tracks in this file.")
     playlist = request.form.get("playlist", "").strip() or "Music-Sync import"
     provider = _services().provider(service)  # built here, so missing credentials fail the request, not the job
 
     def work(job: Job) -> str:
         result = import_tracks(provider, tracks, playlist, progress=job.progress)
         job.unmatched = result.unmatched
-        return _summary(result)
+        return result.summary()
 
     return _start(work)

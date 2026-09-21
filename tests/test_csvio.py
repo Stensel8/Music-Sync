@@ -30,7 +30,7 @@ def test_round_trip(tmp_path):
     assert read_tracks(path) == tracks
 
 
-def test_the_original_csv2tidal_format_has_no_header(tmp_path):
+def test_a_file_without_a_header_row_is_artist_then_title(tmp_path):
     tracks = read_tracks(write(tmp_path, "Daft Punk,Get Lucky\nBjörk,Jóga\n"))
     assert [(t.artists, t.title) for t in tracks] == [(["Daft Punk"], "Get Lucky"), (["Björk"], "Jóga")]
 

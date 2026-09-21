@@ -18,7 +18,7 @@ web = ["flask>=3.1"]
 
 # Development tools (PEP 735): pip install -e . --group dev
 [dependency-groups]
-dev = ["flask>=3.1", "pytest>=8", "responses>=0.25", "ruff", "pyright"]
+dev = ["flask>=3.1", "pytest>=8", "responses>=0.25", "ruff", "pyright", "vulture", "bandit"]
 
 [project.urls]
 Homepage = "https://github.com/Stensel8/Music-Sync"
@@ -31,7 +31,7 @@ music-sync = "musicsync.cli:main"
 include = ["musicsync*"]
 
 [tool.setuptools.package-data]
-musicsync = ["web/templates/*.html"]
+musicsync = ["config_template.toml", "web/static/*.css", "web/templates/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -51,3 +51,9 @@ typeCheckingMode = "standard"
 # Lets Pylance find the packages when the virtual environment sits in the project folder.
 venvPath = "."
 venv = ".venv"
+
+[tool.vulture]
+paths = ["musicsync"]
+# Called by frameworks, not by our code: Flask views and http.server handlers. Token.scope is only stored.
+ignore_decorators = ["@pages.*", "@service_pages.*"]
+ignore_names = ["do_GET", "log_message", "format", "scope"]

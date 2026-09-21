@@ -1,6 +1,6 @@
 # Music-Sync
 
-Move your music between **Spotify**, **Tidal** and **CSV**: liked songs and playlists, in any direction. It is a command line tool with an optional local web interface.
+Move liked songs and playlists between Spotify, Tidal and CSV files. Use it from the command line, or from a small web page on your own computer.
 
 | From \ to | CSV | Spotify | Tidal |
 |-----------|-----|---------|-------|
@@ -8,12 +8,12 @@ Move your music between **Spotify**, **Tidal** and **CSV**: liked songs and play
 | **Tidal** | `export` | `transfer` | |
 | **CSV** | | `import` | `import` |
 
-- **Accurate matching.** Tracks are found by their ISRC (the unique code of a recording) whenever there is one. The rest is matched on title, artist and duration, and a live version is never mistaken for the studio one.
-- **Safe to run twice.** Tracks that are already in the playlist are skipped, so nothing is added twice.
-- **Nothing lost silently.** Tracks that cannot be found are listed, and can be saved to a CSV of their own.
-- **Preview first.** `--dry-run` looks everything up and changes nothing.
+- Tracks are matched by ISRC when there is one, otherwise by title, artist and length. A live version is never taken for the studio version.
+- Running a command twice does not add tracks twice.
+- Tracks that cannot be found are listed, and can be saved to a CSV file.
+- `--dry-run` looks everything up and changes nothing.
 
-Music-Sync only handles playlist metadata (titles, artists, ISRC and so on). It never downloads, records or decrypts audio. A CSV export is plain data you can take to any other tool you like.
+Music-Sync only works with playlist data such as titles, artists and ISRCs. It never touches audio.
 
 ## Installation
 
@@ -23,34 +23,58 @@ You need Python 3.14 or newer.
 git clone https://github.com/Stensel8/Music-Sync
 cd Music-Sync
 python3 -m venv .venv && . .venv/bin/activate    # Windows: .venv\Scripts\activate
-pip install -e '.[web]'                           # leave out [web] if you only want the command line
+pip install -e '.[web]'                           # leave out [web] for the command line only
 ```
 
 ## Setup
 
-Each user registers their own developer apps. There is no shared app, because Spotify limits apps in development mode to 5 users.
+Music-Sync needs a developer app for each service, made from your own account. There is no shared app.
+
+### Spotify
 
 > [!IMPORTANT]
-> **Spotify's API needs Premium.** Since February 2026 an app in development mode only works if the **owner of the app** has an active Spotify Premium subscription. Without it the developer dashboard shows this banner, and Spotify refuses every request with an HTTP 403 error that says an active Premium subscription is required for the owner of the app:
+> Spotify's API needs **Premium**. Since February 2026 an app only works when its owner has an active Premium subscription. Without it the dashboard shows this banner, and every request fails with HTTP 403:
 >
-> ![The Spotify for Developers dashboard with the banner "Your application is blocked from accessing the Web API since you do not have a Spotify Premium subscription."](docs/images/spotify-premium-required.png)
+> ![The Spotify for Developers dashboard with the banner "Your application is blocked from accessing the Web API since you do not have a Spotify Premium subscription."](docs/images/spotify-premium-required.avif)
 >
-> Without Premium you can:
+> On a Free account you cannot even select the Web API when you create the app:
 >
-> - **Ask someone who has it** to create the app and add you under *Settings > User Management* (up to 5 people). Spotify's documentation only requires Premium of the owner; it does not say whether the people you add need it too.
-> - **Leave Spotify's API out of it.** Tidal and CSV work without it. Spotify also lets you [download your own data](https://support.spotify.com/us/article/understanding-your-data/) (your library and playlists, as JSON), but Music-Sync cannot read that yet.
+> ![The "Create app" page on a Free account. A banner says "Upgrade to Spotify Premium to access the Web API", and the Web API option is greyed out.](docs/images/spotify-create-app-free.avif)
 >
-> Sources: Spotify's [development mode requirements](https://developer.spotify.com/documentation/web-api/concepts/quota-modes) and its [February 2026 migration guide](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide).
+> Without Premium you can ask someone who has it to create the app and add you under *Settings > User Management* (up to 5 people). Spotify only requires Premium of the owner. Or leave Spotify out: Tidal and CSV work without it.
+>
+> Sources: [development mode requirements](https://developer.spotify.com/documentation/web-api/concepts/quota-modes) and the [February 2026 migration guide](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide).
 
-**1. Spotify**: create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), from an account with Premium (see above), with the redirect URI `http://127.0.0.1:8888/spotify/callback` (use `127.0.0.1`, not `localhost`). Copy the Client ID.
+1. Create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+2. Use the redirect URI `http://127.0.0.1:8888/spotify/callback` (`127.0.0.1`, not `localhost`).
+3. Under *Which API/SDKs are you planning to use?* tick **Web API** and nothing else.
+4. Copy the Client ID. You do not need the client secret.
 
-**2. Tidal**: create an app in the [TIDAL Developer Portal](https://developer.tidal.com) with the redirect URI `http://127.0.0.1:8888/tidal/callback`. Copy the Client ID and the Client Secret. The secret is used for looking tracks up in Tidal's catalogue (search, ISRC). Without it Music-Sync falls back to your own login, which Tidal may refuse for those calls.
+![Only Web API is ticked.](docs/images/spotify-web-api-ticked.avif)
 
-**3. Configuration**: put the values in `~/.config/music-sync/config.toml` (on Windows `%APPDATA%\music-sync\config.toml`):
+### Tidal
+
+1. Open the [TIDAL developer dashboard](https://developer.tidal.com/dashboard), where you register apps, and click *Create New App*.
+2. Use the redirect URI `http://127.0.0.1:8888/tidal/callback`.
+3. Allow the scopes `collection.read`, `collection.write`, `playlists.read`, `playlists.write` and `user.read`.
+4. Copy the Client ID and the Client Secret. The secret is used to search Tidal's catalogue. Without it Music-Sync searches with your own login, which Tidal may refuse.
+
+![The TIDAL developer dashboard with the "Create New App" button and one app.](docs/images/tidal-dashboard.avif)
+
+![The Scopes panel of a TIDAL app: collection.read, collection.write, playlists.read, playlists.write and user.read.](docs/images/tidal-scopes.avif)
+
+### Settings file
+
+Music-Sync creates the settings file for you the first time you run any command, for example `music-sync status`, and prints where it is. It goes in your user profile, outside the project:
+
+- Linux and macOS: `~/.config/music-sync/config.toml`
+- Windows: `%APPDATA%\music-sync\config.toml`
+
+`.config` is a hidden folder, so your editor's file tree does not show it. Open the file by its path.
+
+Fill in what you copied:
 
 ```toml
-country = "NL"          # decides which Tidal catalogue is searched; defaults to your system locale
-
 [spotify]
 client_id = "..."
 
@@ -59,17 +83,19 @@ client_id = "..."
 client_secret = "..."
 ```
 
-Environment variables override the file: `SPOTIFY_CLIENT_ID`, `TIDAL_CLIENT_ID`, `TIDAL_CLIENT_SECRET`, `MUSICSYNC_COUNTRY`. If you register other redirect URIs, set `SPOTIFY_REDIRECT_URI` and `TIDAL_REDIRECT_URI` to match.
+Only you can read this file, and it is never part of the repository. Music-Sync reads it again whenever it changes, so you never need to restart. `music-sync status` shows the path again.
 
-**4. Log in and check**:
+An optional `country = "NL"` at the top picks the Tidal catalogue. Without it, your system's country is used. Environment variables take priority over the file: `SPOTIFY_CLIENT_ID`, `TIDAL_CLIENT_ID`, `TIDAL_CLIENT_SECRET` and `MUSICSYNC_COUNTRY`. If you use other redirect URIs, set `SPOTIFY_REDIRECT_URI` and `TIDAL_REDIRECT_URI` to match.
+
+### Log in
 
 ```bash
 music-sync login spotify
 music-sync login tidal
-music-sync doctor          # tries the real APIs and says exactly what does not work
+music-sync doctor          # tries the real APIs and shows what does not work
 ```
 
-Your logins are stored in `~/.config/music-sync/tokens.json`, readable by you only. Keep that file secret: it gives access to your accounts.
+Your logins are kept in `tokens.json`, in the same folder. Keep that file private: it gives access to your accounts.
 
 ## Usage
 
@@ -77,25 +103,25 @@ Your logins are stored in `~/.config/music-sync/tokens.json`, readable by you on
 # Spotify or Tidal to CSV
 music-sync export spotify --liked -o liked.csv
 music-sync export spotify --playlist "Road trip" -o road-trip.csv
-music-sync export tidal --all -o backup/tidal          # liked songs plus one CSV per playlist
+music-sync export tidal --all -o backup/tidal          # liked songs and one CSV per playlist
 
 # CSV to Spotify or Tidal
 music-sync import tidal liked.csv --playlist "From CSV" --unmatched missing.csv
 music-sync import spotify liked.csv --dry-run
 
-# straight from one service to the other
+# from one service straight to the other
 music-sync transfer spotify tidal --liked
 music-sync transfer tidal spotify --playlist "Road trip" --to-playlist "Road trip (Tidal)"
 
 music-sync playlists tidal          # list playlists with their ids
-music-sync status                   # what is configured and logged in
+music-sync status                   # what is set up and logged in
 ```
 
-`--min-score 0.8` sets how sure a text match must be. Lower it to accept more doubtful matches, raise it to be stricter. Put `-v` in front of any command (`music-sync -v transfer ...`) to log every API call, which helps a bug report.
+`--min-score 0.8` sets how sure a text match must be. Lower it to accept doubtful matches, raise it to be stricter. Put `-v` before the command (`music-sync -v transfer ...`) to log every API call. That helps in a bug report.
 
 ## CSV format
 
-Music-Sync writes a header row and these columns. Only `title` is required when reading.
+Music-Sync writes a header row with these columns. Only `title` is needed when reading.
 
 | Column | Contents |
 |--------|----------|
@@ -104,10 +130,10 @@ Music-Sync writes a header row and these columns. Only `title` is required when 
 | `album` | Album title |
 | `duration_ms` | Length in milliseconds |
 | `isrc` | ISRC, the most reliable way to find a track again |
-| `spotify_uri` | e.g. `spotify:track:...`, present on files exported from Spotify |
-| `tidal_id` | Tidal track id, present on files exported from Tidal |
+| `spotify_uri` | For example `spotify:track:...`, in files exported from Spotify |
+| `tidal_id` | Tidal track id, in files exported from Tidal |
 
-Files must be UTF-8 (a BOM from Excel is fine). Reading also accepts the column names other exporters use (`Track Name`, `Artist Name(s)`, `Duration (ms)`, `Track URI`) and the original csv2tidal format: no header row, just `artist,title`.
+Files must be UTF-8 (the BOM from Excel is fine). The column names of other exporters are understood too (`Track Name`, `Artist Name(s)`, `Duration (ms)`, `Track URI`). A file without a header row is read as `artist,title`.
 
 ## Web interface
 
@@ -115,47 +141,34 @@ Files must be UTF-8 (a BOM from Excel is fine). Reading also accepts the column 
 music-sync web              # then open http://127.0.0.1:8888
 ```
 
-The same export, import and transfer in a browser, with progress for long jobs. It uses the same logins as the command line. It is meant for one user on their own machine: it listens on `127.0.0.1` only, answers to no other host name, and refuses changes that another website tried to start (it checks the `Sec-Fetch-Site` and `Origin` headers that browsers set, so no tokens are needed). Do not expose it to a network. The port must match the redirect URIs you registered (`--port` changes it).
+Export, import and transfer in a browser, with progress for long jobs. It uses the same logins as the command line.
+
+It is meant for one person on their own computer. It only listens on `127.0.0.1` and refuses requests that another website started, so never expose it to a network. The port must match your redirect URIs. `--port` changes it.
 
 ## Good to know
 
-- **Spotify only shows playlists you own or collaborate on.** Playlists you merely follow, including Spotify's own, cannot be exported since the API changes of February 2026. Music-Sync lists them and skips them.
-- **Tidal looks up 20 ISRCs per request, Spotify one.** A transfer *to* Tidal is therefore fast, while one *to* Spotify takes a request per track. Spotify search also returns at most 10 results per request for apps in development mode.
-- **Local files** in a Spotify playlist have no ID or ISRC. They are exported, and on import they are matched by text only.
-- **Tidal's API is young.** If something fails, run `music-sync doctor tidal` and include its output in an issue.
-
-## Coming from csv2tidal?
-
-This project started as `csv2tidal` (a small CSV-to-Tidal script) and absorbed an earlier Flask prototype that was also called Music-Sync. Everything both could do is still here:
-
-| Before | Now |
-|--------|-----|
-| `python3 csv2tidal.py file.csv` | `music-sync import tidal file.csv --playlist NAME` |
-| Flask app, "Sync Spotify to Tidal" | `music-sync web`, or `music-sync transfer spotify tidal --liked` |
-| `config.py` copied from `sample_config.py` | `config.toml` or environment variables |
-
-The `artist,title` CSV files from csv2tidal still work as they are. One thing is different: Tidal login now goes through Tidal's official API with your own developer app, instead of the shared login of the unofficial tidalapi library. The old `.tidal-session.json` and `.session.yml` files are no longer used. They contain login tokens, so delete them.
+- Spotify only lists playlists you own or collaborate on. Playlists you follow, including Spotify's own, cannot be read since the API changes of February 2026. Music-Sync lists them and skips them.
+- Tidal looks up 20 ISRCs per request and Spotify one, so a transfer to Tidal is fast and a transfer to Spotify takes a request per track. In development mode Spotify also returns at most 10 search results.
+- Empty playlists are not exported or transferred. Music-Sync says which ones it skipped.
+- Local files in a Spotify playlist have no ID or ISRC. They are exported, and on import they are matched by text only.
+- Tidal's API is young. If something fails, run `music-sync doctor tidal` and add its output to your issue.
 
 ## Development
 
 ```bash
-pip install -e . --group dev       # the project, Flask, pytest, ruff and pyright
+pip install -e . --group dev
 pytest
 ruff check . && ruff format --check . && pyright
+vulture                            # unused code
+bandit -r musicsync -ll            # security scan
 ```
 
-See [docs/architecture.md](docs/architecture.md) for how the code is laid out.
+CI runs the same checks, plus `pip-audit` for known vulnerabilities in the dependencies.
 
 ## License
 
-[AGPL-3.0](LICENSE). The license came with the original csv2tidal.
+[AGPL-3.0](LICENSE).
 
 ## Credits
 
-Music-Sync brings two earlier projects together, and stands on the work of several people:
-
-- **csv2tidal**, the script this repository started as (December 2022). The repository and its license were created by [Nugman](https://github.com/Nugman), and the first version of the script and its README were written by roland.behme. Their commits are still part of this repository's history.
-  - Their own credits still apply: *"The inspiration to write this script came from [RZetko](https://gist.github.com/RZetko/71801a20188e842ef03bed3b6d7a297f), login code was borrowed from [spotify_to_tidal](https://github.com/timrae/spotify_to_tidal)."* That project is by [Tim Rae](https://github.com/timrae) and now lives at [spotify2tidal/spotify_to_tidal](https://github.com/spotify2tidal/spotify_to_tidal). The borrowed login code has since been replaced.
-- **The first Music-Sync**, a Flask prototype that copied Spotify tracks to Tidal, and the merged tool you are looking at now are by [Sten Tijhuis](https://github.com/Stensel8) (Stensel8).
-- **[tidalapi](https://github.com/EbbLabs/python-tidal)** (python-tidal, LGPL-3.0), the unofficial Tidal library that csv2tidal and the first Music-Sync were built on, by its maintainers and contributors. Music-Sync itself now talks to Tidal's official API.
-- The web interface is styled with [Tailwind CSS](https://tailwindcss.com) and [daisyUI](https://daisyui.com), loaded from a CDN.
+Music-Sync grew out of csv2tidal, started by [Nugman](https://github.com/Nugman) and roland.behme, who also chose the license. Their script was inspired by [RZetko](https://gist.github.com/RZetko/71801a20188e842ef03bed3b6d7a297f) and used login code from [spotify_to_tidal](https://github.com/timrae/spotify_to_tidal) by [Tim Rae](https://github.com/timrae).

@@ -9,10 +9,7 @@ _ISRC = re.compile(r"[A-Z]{2}[A-Z0-9]{3}\d{7}")
 
 
 def normalize_isrc(value: str | None) -> str | None:
-    """The canonical form of an ISRC ("gb-abc-12-34567" becomes "GBABC1234567"), or None if it is not one.
-
-    Bad values are dropped at the edge (CSV files) so one typo cannot spoil a bulk lookup.
-    """
+    """The canonical form of an ISRC ("gb-abc-12-34567" gives "GBABC1234567"), or None if it is not one."""
     cleaned = (value or "").replace("-", "").replace(" ", "").upper()
     return cleaned if _ISRC.fullmatch(cleaned) else None
 

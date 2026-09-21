@@ -141,3 +141,17 @@ class TestSelectTracks:
         service.readable = False
         with pytest.raises(ProviderError, match="not yours"):
             select_tracks(service, playlist="Road trip")
+
+    def test_empty_ones_are_skipped_with_a_note_when_selecting_everything(self):
+        service, notes = self.service(), []
+        service.existing_playlist("Empty")
+        assert [name for name, _ in select_tracks(service, on_skip=notes.append)] == ["Liked Songs", "Road trip"]
+        assert notes == ["skipping 'Empty': it is empty"]
+
+    def test_asking_for_an_empty_one_is_an_error(self):
+        service = FakeProvider()
+        service.existing_playlist("Empty")
+        with pytest.raises(ProviderError, match='"Empty" is empty'):
+            select_tracks(service, playlist="Empty")
+        with pytest.raises(ProviderError, match='"Liked Songs" is empty'):
+            select_tracks(service, liked=True)

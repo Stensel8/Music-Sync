@@ -1,0 +1,17 @@
+# Your Music-Sync settings. Music-Sync made this file for you: fill in the values and save it.
+# It lives in your user profile, outside the project:
+#   Linux and macOS:  ~/.config/music-sync/config.toml
+#   Windows:          %APPDATA%\music-sync\config.toml
+# It holds a secret (the Tidal client secret): keep it private.
+
+# Two-letter country code that picks the Tidal catalogue.
+# country = "NL"
+
+[spotify]
+# The Client ID of your app in the Spotify Developer Dashboard. No client secret is needed.
+client_id = ""
+
+[tidal]
+# The Client ID and Client Secret of your app in the TIDAL developer dashboard.
+client_id = ""
+client_secret = ""

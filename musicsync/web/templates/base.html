@@ -1,28 +1,23 @@
 <!DOCTYPE html>
-<html lang="nl" data-theme="night">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Music-Sync{% endblock %}</title>
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.min.css" rel="stylesheet" type="text/css" />
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="bg-base-200">
-  <div class="navbar bg-base-100 shadow">
-    <div class="navbar-start">
-      <a class="btn btn-ghost normal-case text-xl" href="{{ url_for('pages.dashboard') }}">Music-Sync</a>
-    </div>
-    <div class="navbar-end">
-      <ul class="menu menu-horizontal p-0">
-        <li><a href="{{ url_for('service.account', service='spotify') }}">Spotify</a></li>
-        <li><a href="{{ url_for('service.account', service='tidal') }}">Tidal</a></li>
-        <li><a href="{{ url_for('pages.login_page') }}">Inloggen</a></li>
-      </ul>
-    </div>
-  </div>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('pages.dashboard') }}">Music-Sync</a>
+    <nav>
+      <a href="{{ url_for('service.account', service='spotify') }}">Spotify</a>
+      <a href="{{ url_for('service.account', service='tidal') }}">Tidal</a>
+      <a href="{{ url_for('pages.login_page') }}">Log in</a>
+    </nav>
+  </header>
 
-  <div class="container mx-auto mt-8 px-4 pb-12">
+  <main class="page">
     {% block content %}{% endblock %}
-  </div>
+  </main>
 </body>
 </html>

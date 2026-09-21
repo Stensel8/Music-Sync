@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ label }} — Music-Sync{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-semibold mb-4">{{ label }}</h1>
+
+<div class="flex flex-wrap gap-2 mb-8">
+  <a class="btn btn-primary btn-sm" href="{{ url_for('service.export', service=service) }}">Liked songs exporteren (CSV)</a>
+  <form method="post" action="{{ url_for('service.logout', service=service) }}">
+    <button class="btn btn-outline btn-sm" type="submit">Uitloggen</button>
+  </form>
+</div>
+
+<h2 class="text-2xl font-semibold mb-4">Playlists</h2>
+{% if playlists %}
+<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+  {% for playlist in playlists %}
+  <div class="card bg-base-100 shadow">
+    <div class="card-body">
+      <p class="text-lg font-bold">{{ playlist.name }}</p>
+      <p class="text-sm text-base-content/60">{{ playlist.track_count if playlist.track_count is not none else '?' }} nummers</p>
+      {% if playlist.readable %}
+        <a class="btn btn-sm btn-outline mt-2" href="{{ url_for('service.export', service=service, playlist=playlist.id) }}">Exporteren (CSV)</a>
+      {% else %}
+        <p class="text-xs text-base-content/50 mt-2">De inhoud is niet leesbaar: alleen van jezelf of waar je aan meewerkt.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p>Geen playlists gevonden.</p>
+{% endif %}
+{% endblock %}

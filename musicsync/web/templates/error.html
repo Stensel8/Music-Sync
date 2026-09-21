@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Fout — Music-Sync{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto">
+  <div class="alert alert-error mb-6">
+    <span><strong>Fout {{ status }}.</strong> {{ message }}</span>
+  </div>
+  <a class="btn btn-outline btn-sm" href="{{ url_for('pages.dashboard') }}">Terug naar het dashboard</a>
+</div>
+{% endblock %}

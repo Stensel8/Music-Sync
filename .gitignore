@@ -128,6 +128,13 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Local stuff
+# Local stuff: never commit logins, credentials or exports
+.session
 .session.yml
+.tidal-session.json
+tokens.json
+web-secret-key
+config.toml
+/music-sync-export/
+unmatched*.csv
 /.claude

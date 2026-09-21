@@ -7,13 +7,13 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from . import __version__
-from .config import SERVICES
+from .config import SERVICES, config_path, ensure_config_file
 from .csvio import read_tracks, slug, write_tracks
 from .errors import ConfigError, MusicSyncError, ProviderError
 from .models import Match, Track
 from .providers.base import Provider
 from .services import Services
-from .sync import LIKED, ImportResult, Progress, import_tracks, select_tracks
+from .sync import LIKED, Progress, import_tracks, select_tracks
 
 type Handler = Callable[[argparse.Namespace, Services], int]
 
@@ -36,14 +36,6 @@ def _progress(quiet: bool) -> Progress | None:
             print(f"[{done}/{total}]", file=sys.stderr, flush=True)
 
     return show
-
-
-def _print_result(result: ImportResult) -> None:
-    verb = "would add" if result.dry_run else "added"
-    counts = [(result.already_there, "already there"), (result.duplicates, "repeated in the input")]
-    parts = [f"{verb} {result.added}", *(f"{n} {what}" for n, what in counts if n)]
-    found = f"{len(result.matched)} matched, {len(result.unmatched)} not found"
-    print(f"{result.playlist_name}: {found}; {', '.join(parts)}")
 
 
 def _report_unmatched(unmatched: list[Track], path: str | None) -> None:
@@ -87,6 +79,8 @@ def cmd_status(_args: argparse.Namespace, services: Services) -> int:
             login = "logged in"
         client_id = "set" if services.settings.is_configured(service) else "MISSING"
         print(f"{service:8} client ID: {client_id:8} {login}")
+    path = config_path()
+    print(f"settings are read from {path}" + ("" if path.exists() else " (no such file yet, see Setup in the README)"))
     print(f"tokens are kept in {services.store.path}")
     return 0
 
@@ -127,7 +121,7 @@ def cmd_import(args: argparse.Namespace, services: Services) -> int:
         dry_run=args.dry_run,
         progress=_progress(args.quiet),
     )
-    _print_result(result)
+    print(result.summary())
     _report_unmatched(result.unmatched, args.unmatched)
     return 0
 
@@ -140,8 +134,6 @@ def cmd_transfer(args: argparse.Namespace, services: Services) -> int:
     source, target = services.provider(args.source), services.provider(args.target)
     unmatched: list[Track] = []
     for name, tracks in select_tracks(source, liked=args.liked, playlist=args.playlist, on_skip=_warn):
-        if not tracks:
-            continue
         destination = args.to_playlist or (f"{LIKED} (from {args.source.title()})" if name == LIKED else name)
         result = import_tracks(
             target,
@@ -151,7 +143,7 @@ def cmd_transfer(args: argparse.Namespace, services: Services) -> int:
             dry_run=args.dry_run,
             progress=_progress(args.quiet),
         )
-        _print_result(result)
+        print(result.summary())
         unmatched.extend(result.unmatched)
     _report_unmatched(unmatched, args.unmatched)
     return 0
@@ -286,13 +278,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _real_services() -> Services:
+    """The real services. The first run also creates the settings file."""
+    if ensure_config_file():
+        _warn(f"Created {config_path()}: fill in your Client IDs there (see Setup in the README).")
+    return Services()
+
+
 def main(argv: Sequence[str] | None = None, services: Services | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.WARNING, format="%(levelname)s %(name)s: %(message)s"
     )
     try:
-        return args.handler(args, services or Services())
+        return args.handler(args, services or _real_services())
     except (MusicSyncError, OSError) as exc:  # OSError: a CSV file that is missing or cannot be written
         print(f"error: {exc}", file=sys.stderr)
         return 1

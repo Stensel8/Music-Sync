@@ -56,11 +56,7 @@ class Provider(ABC):
         min_score: float = 0.8,
         known_isrcs: Mapping[str, list[Track]] | None = None,
     ) -> Match | None:
-        """Find ``track`` on this service: by its id, then by ISRC, then by searching for it.
-
-        ``known_isrcs`` is the result of a bulk ``lookup_isrcs`` the caller already did, so the
-        ISRC is not looked up again one track at a time.
-        """
+        """Find ``track`` here by id, then ISRC, then search. ``known_isrcs`` is a bulk lookup done by the caller."""
         if self.native_id(track):
             return Match(track, 1.0, "id")
         if track.isrc:
@@ -70,8 +66,7 @@ class Provider(ABC):
                 # An ISRC can appear on several releases of one recording; take the closest edition.
                 return Match(max(found, key=lambda candidate: score(track, candidate)), 1.0, "isrc")
 
-        # No ISRC, or the service does not have it: search on title and artist, first as written,
-        # then without "(feat. ...)" and "- Remastered" noise that the service may word differently.
+        # Search on title and artist, as written and then without "(feat. ...)" and "- Remastered" noise.
         queries = dict.fromkeys([f"{track.title} {track.artist}", f"{simplify_title(track.title)} {track.artist}"])
         for query in queries:
             if hit := best_match(track, self.search(query.strip()), min_score):

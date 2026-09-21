@@ -1,8 +1,4 @@
-"""Decide whether a search result is the track we were looking for.
-
-This is the fallback for tracks without an ISRC, or that a service does not know by ISRC.
-A match by ISRC is exact and never goes through here.
-"""
+"""Decide whether a search result is the track we want. The fallback for tracks that an ISRC cannot find."""
 
 import re
 import unicodedata
@@ -10,8 +6,7 @@ from difflib import SequenceMatcher
 
 from .models import Track
 
-# Words that make a recording a different version of the "same" song: a live version is not the
-# studio version. If one side has such a word and the other does not, the title score is halved.
+# A live version is not the studio version: when only one side has such a word, the title score is halved.
 VERSION_TAGS = ("live", "remix", "acoustic", "instrumental", "demo", "karaoke", "cover", "radio edit", "extended")
 
 _BRACKETS = re.compile(r"[(\[{][^)\]}]*[)\]}]")

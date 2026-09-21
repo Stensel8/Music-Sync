@@ -1,12 +1,8 @@
-"""Every failure we expect and can explain to the user.
-
-The CLI prints the message; the web interface answers with ``http_status``. Anything that
-is *not* a MusicSyncError is a bug, and is left to fail loudly.
-"""
+"""Failures we can explain to the user. The CLI prints them, the web interface answers with ``http_status``."""
 
 
 class MusicSyncError(Exception):
-    """Base class: a problem whose message is safe and useful to show to the user."""
+    """A problem whose message is safe to show to the user. Anything else is a bug and fails loudly."""
 
     http_status = 400  # what the web interface answers with
 
@@ -51,4 +47,4 @@ class ApiError(MusicSyncError):
 
 
 class QuotaExceeded(ApiError):
-    """The service says this app has used up its quota; retrying in a few seconds will not help."""
+    """The app has used up its quota; retrying will not help."""

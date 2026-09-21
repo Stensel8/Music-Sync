@@ -1,6 +1,6 @@
 """Wires the settings, the token store and the service classes together."""
 
-from .config import Settings, load_settings
+from .config import Settings, config_path, load_settings
 from .http import ApiClient
 from .oauth import ClientCredentials, OAuthClient, StoredToken, TokenStore
 from .providers.base import Provider
@@ -15,8 +15,22 @@ class Services:
     both take one of these, which is also what makes them easy to test with fakes."""
 
     def __init__(self, settings: Settings | None = None, store: TokenStore | None = None):
-        self.settings = settings or load_settings()
+        self._given = settings  # tests pass their own; otherwise the settings come from config.toml
+        self._loaded: tuple[int | None, Settings] | None = None  # (modification time, what it said)
         self.store = store or TokenStore()
+
+    @property
+    def settings(self) -> Settings:
+        """The settings, read again whenever config.toml changes, so a running web interface sees edits."""
+        if self._given is not None:
+            return self._given
+        try:
+            stamp = config_path().stat().st_mtime_ns
+        except OSError:
+            stamp = None
+        if self._loaded is None or self._loaded[0] != stamp:
+            self._loaded = (stamp, load_settings())
+        return self._loaded[1]
 
     def oauth(self, service: str) -> OAuthClient:
         config = self.settings.require(service)

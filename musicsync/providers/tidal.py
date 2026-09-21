@@ -1,11 +1,6 @@
-"""Tidal, through the official TIDAL API v2 (https://openapi.tidal.com/v2).
+"""Tidal, through the official TIDAL API v2 (JSON:API: related resources come in ``included``, on request).
 
-The endpoints and parameters follow Tidal's published OpenAPI description. It is a JSON:API:
-a request returns resource identifiers in ``data`` and their details in ``included``, and
-related resources (a track's artists and albums) only come along when asked for with ``include``.
-
-Catalogue lookups (search, tracks by ISRC or id) use an app-level token when a client secret
-is configured. The user's own data (collection, playlists) always uses the user's token.
+Catalogue lookups use an app-level token when a client secret is set; the user's own data uses the user's token.
 """
 
 import re
@@ -29,7 +24,7 @@ class TidalOAuth(OAuthClient):
     name = "tidal"
     authorize_endpoint = "https://login.tidal.com/authorize"
     token_endpoint = "https://auth.tidal.com/v1/oauth2/token"
-    scopes = ("collection.read", "playlists.read", "playlists.write", "search.read")
+    scopes = ("collection.read", "playlists.read", "playlists.write")
 
 
 _DURATION = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?")
@@ -146,7 +141,7 @@ class TidalProvider(Provider):
             for res in doc.get("data", [])
             for track_id in _track_ids(res.get("relationships", {}).get("tracks", {}))
         ]
-        return self._tracks_by_id(ids[:10])
+        return self._tracks_by_id(ids[:BATCH])  # one request for all of them
 
     def create_playlist(self, name: str, description: str = "") -> str:
         # accessType is left out so the playlist gets Tidal's default (private) visibility.

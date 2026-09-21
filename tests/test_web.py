@@ -1,4 +1,5 @@
 import io
+import re
 import time
 
 import pytest
@@ -51,11 +52,19 @@ def csv_tracks(response) -> list[str]:
 def test_the_pages_render(client):
     assert "Dashboard" in client.get("/").get_data(as_text=True)
     login = client.get("/login").get_data(as_text=True)
-    assert "met Spotify" in login and "met Tidal" in login
+    assert "with Spotify" in login and "with Tidal" in login
 
 
-def test_a_service_without_a_client_id_says_so(tmp_path):
-    from musicsync.config import Settings
+def test_the_pages_load_nothing_from_other_sites(client, services):
+    services.store.save("spotify", Token("A", "R", time.time() + 100))
+    for path in ("/", "/login", "/spotify/account"):
+        page = client.get(path).get_data(as_text=True)
+        assert "/static/style.css" in page and not re.search(r"(?:src|href)=[\"']?https?:", page), path
+    assert client.get("/static/style.css").mimetype == "text/css"
+
+
+def test_a_service_without_a_client_id_says_where_to_put_it(tmp_path):
+    from musicsync.config import Settings, config_path
 
     page = (
         create_app(FakeServices(tmp_path, Settings()), secret_key="k")
@@ -63,7 +72,8 @@ def test_a_service_without_a_client_id_says_so(tmp_path):
         .get("/login")
         .get_data(as_text=True)
     )
-    assert "client-ID ontbreekt" in page and "met Spotify" not in page
+    assert "client ID missing" in page and "with Spotify" not in page
+    assert "[spotify]" in page and "[tidal]" in page and str(config_path()) in page
 
 
 def test_only_our_own_host_names_are_answered(client):
@@ -97,7 +107,7 @@ def test_changes_started_by_another_site_are_refused(client, headers, status):
 def test_refusals_are_json_for_fetch_calls_and_a_page_for_browsers(client):
     forged = {"Sec-Fetch-Site": "cross-site"}
     assert client.post("/transfer", headers={**forged, **JSON}).get_json()["status"] == "error"
-    assert "Fout 403" in client.post("/transfer", headers=forged).get_data(as_text=True)
+    assert "Error 403" in client.post("/transfer", headers=forged).get_data(as_text=True)
 
 
 # --- logging in ----------------------------------------------------------------------------------------
@@ -159,7 +169,17 @@ def test_playlists_you_cannot_read_have_no_export_link(client, services):
     spotify.existing_playlist("Followed")
     spotify.readable = False
     page = client.get("/spotify/account").get_data(as_text=True)
-    assert "niet leesbaar" in page and "playlist=pl1" not in page
+    assert "cannot be read" in page and "playlist=pl1" not in page
+
+
+def test_empty_playlists_have_no_export_link_and_are_refused(client, services):
+    spotify = services.providers["spotify"]
+    assert isinstance(spotify, FakeProvider)
+    spotify.existing_playlist("Empty")
+    page = client.get("/spotify/account").get_data(as_text=True)
+    assert "is empty" in page and "playlist=pl1" not in page
+    response = client.get("/spotify/export?playlist=Empty", headers=JSON)
+    assert response.status_code == 400 and "is empty" in response.get_json()["message"]
 
 
 def test_the_account_page_sends_you_to_login_when_the_session_is_gone(tmp_path):
@@ -204,7 +224,7 @@ def test_import_runs_as_a_job_and_reports_what_was_not_found(client, services):
     assert response.status_code == 202
     job_id = response.get_json()["id"]
     job = wait_for(client, job_id)
-    assert job["status"] == "done" and job["message"] == "Mix: 1 gevonden, 1 niet gevonden; 1 toegevoegd"
+    assert job["status"] == "done" and job["message"] == "Mix: 1 matched, 1 not found; added 1"
     assert job["unmatched"] == ["Nobody - Nothing"] and job["done"] == job["total"] == 2
 
     tidal = services.providers["tidal"]
@@ -215,7 +235,7 @@ def test_import_runs_as_a_job_and_reports_what_was_not_found(client, services):
 
 @pytest.mark.parametrize(
     ("body", "message"),
-    [(b"", "geen nummers"), ("Björk,Jóga".encode("latin-1"), "UTF-8")],
+    [(b"", "no tracks"), ("Björk,Jóga".encode("latin-1"), "UTF-8")],
 )
 def test_import_rejects_empty_and_non_utf8_files(client, body, message):
     response = upload(client, body)
@@ -229,7 +249,7 @@ def test_import_needs_a_file(client):
 def test_transfer_copies_liked_songs_to_the_other_service(client, services):
     response = client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON)
     job = wait_for(client, response.get_json()["id"])
-    assert job["status"] == "done" and "Liked Songs (from Spotify): 1 gevonden, 1 niet gevonden" in job["message"]
+    assert job["status"] == "done" and "Liked Songs (from Spotify): 1 matched, 1 not found" in job["message"]
     tidal = services.providers["tidal"]
     assert isinstance(tidal, FakeProvider)
     assert [name for name, _ in tidal.playlists_by_id.values()] == ["Liked Songs (from Spotify)"]

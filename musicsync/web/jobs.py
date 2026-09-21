@@ -54,7 +54,7 @@ class JobManager:
             job.message, job.status = str(exc), "error"
         except Exception:
             log.exception("Job %s failed", job.id)  # a bug: the details go to the log, not to the browser
-            job.message, job.status = "Onverwachte fout; kijk in de terminal voor details.", "error"
+            job.message, job.status = "Unexpected error; see the terminal for details.", "error"
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:

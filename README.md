@@ -28,9 +28,21 @@ pip install -e '.[web]'                           # leave out [web] if you only 
 
 ## Setup
 
-Each user registers their own (free) developer apps. There is no shared app because Spotify limits apps in development mode to 5 users and, since February 2026, requires the app's owner to have Spotify Premium.
+Each user registers their own developer apps. There is no shared app, because Spotify limits apps in development mode to 5 users.
 
-**1. Spotify**: create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) with the redirect URI `http://127.0.0.1:8888/spotify/callback` (use `127.0.0.1`, not `localhost`). Copy the Client ID.
+> [!IMPORTANT]
+> **Spotify's API needs Premium.** Since February 2026 an app in development mode only works if the **owner of the app** has an active Spotify Premium subscription. Without it the developer dashboard shows this banner, and Spotify refuses every request with an HTTP 403 error that says an active Premium subscription is required for the owner of the app:
+>
+> ![The Spotify for Developers dashboard with the banner "Your application is blocked from accessing the Web API since you do not have a Spotify Premium subscription."](docs/images/spotify-premium-required.png)
+>
+> Without Premium you can:
+>
+> - **Ask someone who has it** to create the app and add you under *Settings > User Management* (up to 5 people). Spotify's documentation only requires Premium of the owner; it does not say whether the people you add need it too.
+> - **Leave Spotify's API out of it.** Tidal and CSV work without it. Spotify also lets you [download your own data](https://support.spotify.com/us/article/understanding-your-data/) (your library and playlists, as JSON), but Music-Sync cannot read that yet.
+>
+> Sources: Spotify's [development mode requirements](https://developer.spotify.com/documentation/web-api/concepts/quota-modes) and its [February 2026 migration guide](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide).
+
+**1. Spotify**: create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), from an account with Premium (see above), with the redirect URI `http://127.0.0.1:8888/spotify/callback` (use `127.0.0.1`, not `localhost`). Copy the Client ID.
 
 **2. Tidal**: create an app in the [TIDAL Developer Portal](https://developer.tidal.com) with the redirect URI `http://127.0.0.1:8888/tidal/callback`. Copy the Client ID and the Client Secret. The secret is used for looking tracks up in Tidal's catalogue (search, ISRC). Without it Music-Sync falls back to your own login, which Tidal may refuse for those calls.
 

@@ -31,7 +31,7 @@ music-sync = "musicsync.cli:main"
 include = ["musicsync*"]
 
 [tool.setuptools.package-data]
-musicsync = ["config_template.toml", "web/static/*.css", "web/templates/*.html"]
+musicsync = ["config_template.toml", "web/static/*.css", "web/static/*.js", "web/templates/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

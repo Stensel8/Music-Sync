@@ -35,13 +35,15 @@
 <hr>
 
 <div class="cards single">
+  {% include "_job.html" %}
+
   <section class="card">
     <h2>Export to CSV</h2>
     <p class="muted small">Save your liked songs or a playlist as a CSV file.</p>
     <form id="export-form" class="row">
       {{ service_select('export-service', 'Choose a service…') }}
       <select id="export-playlist"><option value="">Liked songs</option></select>
-      <button class="btn primary" type="submit">Download</button>
+      <button class="btn primary" type="submit" data-job-button>Download</button>
     </form>
   </section>
 
@@ -52,7 +54,7 @@
       {{ service_select('import-service', 'Choose a service…') }}
       <input id="import-playlist" placeholder="Playlist name" value="Music-Sync import">
       <input id="import-file" type="file" accept=".csv,text/csv" required>
-      <button class="btn primary" type="submit">Import</button>
+      <button class="btn primary" type="submit" data-job-button>Import</button>
     </form>
   </section>
 
@@ -64,119 +66,8 @@
       <select id="transfer-playlist"><option value="">Liked songs</option></select>
       {{ service_select('transfer-target', 'To…') }}
       <input id="transfer-name" placeholder="Name of the new playlist (optional)">
-      <button class="btn primary" type="submit">Transfer</button>
+      <button class="btn primary" type="submit" data-job-button>Transfer</button>
     </form>
   </section>
-
-  <section id="job" class="card" hidden>
-    <progress id="job-bar" value="0" max="1"></progress>
-    <p id="job-text" class="small"></p>
-    <div id="job-unmatched" hidden>
-      <p class="small strong">Not found:</p>
-      <ul id="job-unmatched-list" class="list"></ul>
-      <p><a id="job-unmatched-link" class="btn tiny">Download all (CSV)</a></p>
-    </div>
-  </section>
 </div>
-
-<script>
-const $ = (id) => document.getElementById(id);
-
-// Asking for JSON makes the server answer errors as JSON too, instead of as an error page.
-const api = (url, init = {}) => fetch(url, { ...init, headers: { Accept: 'application/json', ...init.headers } });
-
-async function json(resp) {
-  const data = await resp.json();
-  if (!resp.ok) throw new Error(data.message);
-  return data;
-}
-
-function show(text, { error = false, progress = false } = {}) {
-  $('job').hidden = false;
-  $('job-bar').hidden = !progress;
-  $('job-unmatched').hidden = true;
-  $('job-text').textContent = text;
-  $('job-text').classList.toggle('error', error);
-}
-
-// Fill a playlist picker with the readable playlists of a service. Empty ones cannot be picked.
-async function fillPlaylists(service, select) {
-  select.replaceChildren(new Option('Liked songs', ''));
-  if (!service) return;
-  try {
-    for (const p of await json(await api(`/${service}/playlists`))) {
-      if (!p.readable) continue;
-      const empty = p.track_count === 0;
-      const option = new Option(`${p.name} (${empty ? 'empty' : (p.track_count ?? '?')})`, p.id);
-      option.disabled = empty;
-      select.add(option);
-    }
-  } catch (err) {
-    show(err.message, { error: true });
-  }
-}
-
-// Poll a background job until it is done, and show what it found.
-async function follow(id) {
-  for (;;) {
-    const job = await json(await api(`/jobs/${id}`));
-    if (job.status === 'running') {
-      show(`Working… ${job.done}/${job.total} ${job.current}`, { progress: true });
-      $('job-bar').max = job.total || 1;
-      $('job-bar').value = job.done;
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      continue;
-    }
-    show(job.message, { error: job.status === 'error' });
-    if (job.unmatched_count) {
-      // textContent, never innerHTML: track titles come from other people's playlists.
-      $('job-unmatched-list').replaceChildren(
-        ...job.unmatched.map((text) => Object.assign(document.createElement('li'), { textContent: text })),
-      );
-      $('job-unmatched-link').href = `/jobs/${id}/unmatched.csv`;
-      $('job-unmatched').hidden = false;
-    }
-    return;
-  }
-}
-
-// Start a background job (an import or a transfer) and follow it to the end.
-async function start(url, init) {
-  try {
-    await follow((await json(await api(url, { method: 'POST', ...init }))).id);
-  } catch (err) {
-    show(err.message, { error: true });
-  }
-}
-
-$('export-service').addEventListener('change', (e) => fillPlaylists(e.target.value, $('export-playlist')));
-$('transfer-source').addEventListener('change', (e) => fillPlaylists(e.target.value, $('transfer-playlist')));
-
-$('export-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const playlist = $('export-playlist').value;
-  window.location.href = `/${$('export-service').value}/export` + (playlist ? `?playlist=${encodeURIComponent(playlist)}` : '');
-});
-
-$('import-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const form = new FormData();
-  form.append('file', $('import-file').files[0]);
-  form.append('playlist', $('import-playlist').value);
-  start(`/${$('import-service').value}/import`, { body: form });
-});
-
-$('transfer-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  start('/transfer', {
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      source: $('transfer-source').value,
-      target: $('transfer-target').value,
-      playlist: $('transfer-playlist').value || null,
-      name: $('transfer-name').value,
-    }),
-  });
-});
-</script>
 {% endblock %}

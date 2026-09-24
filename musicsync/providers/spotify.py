@@ -53,6 +53,7 @@ def parse_track(obj: dict[str, Any] | None) -> Track | None:
 
 class SpotifyProvider(Provider):
     name = "spotify"
+    add_batch = ADD_BATCH
 
     def __init__(self, api: ApiClient):
         self.api = api
@@ -84,6 +85,9 @@ class SpotifyProvider(Provider):
             for entry in page.get("items", []):
                 if track := parse_track(entry.get("track")):
                     yield track
+
+    def liked_count(self) -> int | None:
+        return self._request("GET", "/me/tracks", params={"limit": 1}).get("total")
 
     def playlists(self) -> list[PlaylistInfo]:
         found = []

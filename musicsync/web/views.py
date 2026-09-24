@@ -2,6 +2,7 @@
 
 import io
 import secrets
+from collections.abc import Callable
 from urllib.parse import quote
 
 from flask import Blueprint, Response, abort, current_app, jsonify, redirect, render_template, request, session, url_for
@@ -42,9 +43,24 @@ def _accounts() -> list[dict]:
     ]
 
 
-def _start(work) -> tuple[Response, int]:
+def _start(kind: str, title: str, work: Callable[[Job], str]) -> tuple[Response, int]:
     """Run ``work(job)`` in the background. The page follows its progress at /jobs/<id>."""
-    return jsonify(id=_jobs().start(work).id), 202
+    return jsonify(id=_jobs().start(kind, title, work).id), 202
+
+
+def _job(job_id: str) -> Job:
+    if (job := _jobs().get(job_id)) is None:
+        abort(404, "Unknown job")
+    return job
+
+
+def _attachment(text: str, name: str) -> Response:
+    """A CSV the browser saves as ``name``.csv."""
+    # filename* carries the real name (it may have accents); plain filename is the ASCII fallback for old
+    # browsers, as a header cannot carry every character.
+    fallback = slug(name).encode("ascii", "ignore").decode().strip() or "export"
+    disposition = f"attachment; filename=\"{fallback}.csv\"; filename*=UTF-8''{quote(slug(name))}.csv"
+    return Response(text, mimetype="text/csv", headers={"Content-Disposition": disposition})
 
 
 # --- pages and cross-service actions ---------------------------------------------------------------
@@ -71,39 +87,34 @@ def transfer() -> tuple[Response, int]:
     source_provider, target_provider = _services().provider(source), _services().provider(target)
 
     def work(job: Job) -> str:
-        ((source_name, tracks),) = select_tracks(source_provider, liked=not playlist, playlist=playlist)
+        ((source_name, tracks),) = select_tracks(
+            source_provider, liked=not playlist, playlist=playlist, progress=job.progress
+        )
         destination = name or (f"{LIKED} (from {source.title()})" if source_name == LIKED else source_name)
-        result = import_tracks(target_provider, tracks, destination, progress=job.progress)
-        job.unmatched = result.unmatched
-        return result.summary()
+        return import_tracks(target_provider, tracks, destination, progress=job.progress).summary()
 
-    return _start(work)
+    return _start("transfer", f"Transfer from {source.title()} to {target.title()}", work)
 
 
 @pages.get("/jobs/<job_id>")
 def job_status(job_id: str) -> Response:
-    if (job := _jobs().get(job_id)) is None:
-        abort(404, "Unknown job")
-    return jsonify(
-        status=job.status,
-        done=job.done,
-        total=job.total,
-        current=job.current,
-        message=job.message,
-        unmatched=[str(track) for track in job.unmatched[:50]],
-        unmatched_count=len(job.unmatched),
-    )
+    return jsonify(_job(job_id).to_json())
 
 
 @pages.get("/jobs/<job_id>/unmatched.csv")
 def job_unmatched(job_id: str) -> Response:
-    if (job := _jobs().get(job_id)) is None:
-        abort(404, "Unknown job")
     out = io.StringIO()
-    write_csv(out, job.unmatched)
-    return Response(
-        out.getvalue(), mimetype="text/csv", headers={"Content-Disposition": 'attachment; filename="unmatched.csv"'}
-    )
+    write_csv(out, _job(job_id).unmatched)
+    return _attachment(out.getvalue(), "unmatched")
+
+
+@pages.get("/jobs/<job_id>/download")
+def job_download(job_id: str) -> Response:
+    """The CSV an export made."""
+    if (download := _job(job_id).download) is None:
+        abort(404, "This job has no file (yet).")
+    name, text = download
+    return _attachment(text, name)
 
 
 # --- one service: login, account, export, import --------------------------------------------------
@@ -156,15 +167,20 @@ def playlists(service: str) -> Response:
     )
 
 
-@service_pages.get("/export")
-def export(service: str) -> Response:
-    playlist = request.args.get("playlist")
-    ((name, tracks),) = select_tracks(_services().provider(service), liked=not playlist, playlist=playlist)
-    out = io.StringIO()
-    write_csv(out, tracks)
-    # filename* carries the real name (it may have accents); plain filename is the fallback for old browsers.
-    disposition = f"attachment; filename=\"export.csv\"; filename*=UTF-8''{quote(slug(name))}.csv"
-    return Response(out.getvalue(), mimetype="text/csv", headers={"Content-Disposition": disposition})
+@service_pages.post("/export")
+def export(service: str) -> tuple[Response, int]:
+    """Read liked songs or a playlist in the background; the page downloads the CSV at /jobs/<id>/download."""
+    playlist = (request.get_json(silent=True) or {}).get("playlist") or None
+    provider = _services().provider(service)  # built here, so missing credentials fail the request, not the job
+
+    def work(job: Job) -> str:
+        ((name, tracks),) = select_tracks(provider, liked=not playlist, playlist=playlist, progress=job.progress)
+        out = io.StringIO()
+        write_csv(out, tracks)
+        job.download = (name, out.getvalue())
+        return f"{name}: {len(tracks)} tracks exported."
+
+    return _start("export", f"Export from {service.title()}", work)
 
 
 @service_pages.post("/import")
@@ -182,8 +198,6 @@ def import_csv(service: str) -> tuple[Response, int]:
     provider = _services().provider(service)  # built here, so missing credentials fail the request, not the job
 
     def work(job: Job) -> str:
-        result = import_tracks(provider, tracks, playlist, progress=job.progress)
-        job.unmatched = result.unmatched
-        return result.summary()
+        return import_tracks(provider, tracks, playlist, progress=job.progress).summary()
 
-    return _start(work)
+    return _start("import", f"Import into {service.title()}", work)

@@ -5,11 +5,13 @@
 <h1>{{ label }}</h1>
 
 <div class="row">
-  <a class="btn primary" href="{{ url_for('service.export', service=service) }}">Export liked songs (CSV)</a>
+  <button class="btn primary" type="button" data-job-button data-service="{{ service }}" data-export="">Export liked songs (CSV)</button>
   <form method="post" action="{{ url_for('service.logout', service=service) }}">
     <button class="btn" type="submit">Log out</button>
   </form>
 </div>
+
+{% include "_job.html" %}
 
 <h2>Playlists</h2>
 {% if playlists %}
@@ -23,7 +25,7 @@
     {% elif playlist.track_count == 0 %}
       <p class="muted tiny">This playlist is empty: there is nothing to export.</p>
     {% else %}
-      <div><a class="btn" href="{{ url_for('service.export', service=service, playlist=playlist.id) }}">Export (CSV)</a></div>
+      <div><button class="btn" type="button" data-job-button data-service="{{ service }}" data-export="{{ playlist.id }}">Export (CSV)</button></div>
     {% endif %}
   </section>
   {% endfor %}

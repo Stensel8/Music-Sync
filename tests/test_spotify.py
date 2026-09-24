@@ -124,14 +124,21 @@ def test_add_to_playlist_batches_by_100_and_skips_tracks_without_an_id(spotify):
 
 
 @responses.activate
-def test_resolve_prefers_the_isrc_and_falls_back_to_a_text_search(spotify):
+def test_find_prefers_the_isrc_and_falls_back_to_a_text_search(spotify):
     responses.get(f"{API}/search", json={"tracks": {"items": [sp_track("Other Song", "spotify:track:9")]}})
-    by_isrc = spotify.resolve(Track("Song", ["Artist"], isrc=ISRC_A))
+    by_isrc = spotify.find(Track("Song", ["Artist"], isrc=ISRC_A))
     assert by_isrc is not None and by_isrc.method == "isrc"  # the ISRC decides, whatever the title says
 
     responses.replace(responses.GET, f"{API}/search", json={"tracks": {"items": [sp_track("Song", "spotify:track:5")]}})
-    by_text = spotify.resolve(Track("Song", ["Artist"], duration_ms=200000))
+    by_text = spotify.find(Track("Song", ["Artist"], duration_ms=200000))
     assert by_text is not None and by_text.method == "search" and by_text.track.ids == {"spotify": "spotify:track:5"}
+
+
+@responses.activate
+def test_liked_count_asks_for_one_track_and_reads_the_total(spotify):
+    responses.get(f"{API}/me/tracks", json={"items": [], "total": 1204})
+    assert spotify.liked_count() == 1204
+    assert sent_query(responses.calls[0])["limit"] == ["1"]
 
 
 @responses.activate

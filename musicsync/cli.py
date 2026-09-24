@@ -2,7 +2,9 @@
 
 import argparse
 import logging
+import shutil
 import sys
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -13,7 +15,7 @@ from .errors import ConfigError, MusicSyncError, ProviderError
 from .models import Match, Track
 from .providers.base import Provider
 from .services import Services
-from .sync import LIKED, Progress, import_tracks, select_tracks
+from .sync import LIKED, Progress, Step, import_tracks, remaining, select_tracks
 
 type Handler = Callable[[argparse.Namespace, Services], int]
 
@@ -22,33 +24,86 @@ def _warn(message: str) -> None:
     print(message, file=sys.stderr)
 
 
+def _bar(done: int, total: int, width: int = 20) -> str:
+    filled = round(width * done / total) if total else width
+    return f"[{'#' * filled}{'-' * (width - filled)}]"
+
+
+def _seconds(seconds: float) -> str:
+    """A rough duration for people: "40 s", "3 min"."""
+    return f"{max(round(seconds / 10) * 10, 10)} s" if seconds < 60 else f"{round(seconds / 60)} min"
+
+
+class _ProgressLine:
+    """Progress on stderr. On a terminal: one line per step of the work, redrawn in place. In a log file:
+    a line per 50 tracks, and one when a step is complete."""
+
+    def __init__(self) -> None:
+        self.tty = sys.stderr.isatty()
+        self.text = ""  # the step the current line is about
+        self.open = False  # a line has been drawn but not ended
+        self.complete = False  # the last step reported was complete
+        self.found = self.missing = 0
+        self.started = time.monotonic()
+
+    def __call__(self, step: Step) -> None:
+        if step.text != self.text or self.complete:  # a new step, or the same kind of step for the next list
+            self.end()
+            self.text, self.found, self.missing, self.started = step.text, 0, 0, time.monotonic()
+        if step.phase == "match":
+            self.found += step.match is not None
+            self.missing += step.match is None
+        self.complete = step.total is not None and step.done >= step.total
+        if self.tty:
+            width = max(shutil.get_terminal_size().columns - 1, 40)
+            print(f"\r{self.line(step)[:width]:<{width}}", end="", file=sys.stderr, flush=True)
+            self.open = True
+            if self.complete:
+                self.end()
+        elif self.complete or (step.done and step.done % 50 == 0):
+            print(self.line(step, current=False), file=sys.stderr, flush=True)
+
+    def end(self) -> None:
+        if self.open:
+            print(file=sys.stderr, flush=True)
+            self.open = False
+
+    def line(self, step: Step, *, current: bool = True) -> str:
+        """ "Finding the tracks on Tidal  [#####---]  45/300  40 found, 5 not found  1 min left  Artist - Title" """
+        if step.total is None:
+            parts = [step.text, f"{step.done} so far"]
+        else:
+            parts = [step.text, _bar(step.done, step.total), f"{step.done}/{step.total}"]
+        if step.phase == "match":
+            parts.append(f"{self.found} found, {self.missing} not found")
+        if (left := remaining(step.done, step.total, time.monotonic() - self.started)) is not None:
+            parts.append(f"{_seconds(left)} left")
+        if current and step.track and not self.complete:
+            parts.append(str(step.track))
+        return "  ".join(parts)
+
+
 def _progress(quiet: bool) -> Progress | None:
-    """A progress display on stderr: a live line on a terminal, a line per 50 tracks in a log."""
-    if quiet:
-        return None
-    tty = sys.stderr.isatty()
-
-    def show(done: int, total: int, track: Track, _match: Match | None) -> None:
-        if tty:
-            end = "\n" if done == total else ""
-            print(f"\r[{done}/{total}] {str(track)[:60]:<60}", end=end, file=sys.stderr, flush=True)
-        elif done % 50 == 0 or done == total:
-            print(f"[{done}/{total}]", file=sys.stderr, flush=True)
-
-    return show
+    return None if quiet else _ProgressLine()
 
 
-def _report_unmatched(unmatched: list[Track], path: str | None) -> None:
-    """Show the tracks that were not found, or save them all when ``--unmatched`` was given."""
+def _closest(match: Match | None) -> str:
+    return f"  (closest: {match.track}, score {match.score:.2f})" if match else ""
+
+
+def _report_unmatched(unmatched: list[Track], near_misses: list[tuple[Track, Match]], path: str | None) -> None:
+    """Show the tracks that were not found, with what came closest, or save them all when ``--unmatched``
+    was given."""
     if not unmatched:
         return
     if path:
         write_tracks(path, unmatched)
         print(f"{len(unmatched)} tracks without a match written to {path}")
         return
+    closest = {id(track): match for track, match in near_misses}  # the same objects as in ``unmatched``
     print("\nNot found:")
     for track in unmatched[:10]:
-        print(f"  {track}")
+        print(f"  {track}{_closest(closest.get(id(track)))}")
     if len(unmatched) > 10:
         print(f"  ... and {len(unmatched) - 10} more (use --unmatched FILE to save them all)")
 
@@ -95,7 +150,9 @@ def cmd_playlists(args: argparse.Namespace, services: Services) -> int:
 
 def cmd_export(args: argparse.Namespace, services: Services) -> int:
     provider = services.provider(args.service)
-    selected = select_tracks(provider, liked=args.liked, playlist=args.playlist, on_skip=_warn)
+    selected = select_tracks(
+        provider, liked=args.liked, playlist=args.playlist, on_skip=_warn, progress=_progress(args.quiet)
+    )
     if args.all:  # one CSV per playlist, in a folder
         folder = Path(args.output or f"music-sync-export/{args.service}")
         for name, tracks in selected:
@@ -122,7 +179,7 @@ def cmd_import(args: argparse.Namespace, services: Services) -> int:
         progress=_progress(args.quiet),
     )
     print(result.summary())
-    _report_unmatched(result.unmatched, args.unmatched)
+    _report_unmatched(result.unmatched, result.near_misses, args.unmatched)
     return 0
 
 
@@ -132,20 +189,19 @@ def cmd_transfer(args: argparse.Namespace, services: Services) -> int:
     if args.to_playlist and args.all:
         raise ProviderError("--to-playlist cannot be combined with --all.")
     source, target = services.provider(args.source), services.provider(args.target)
+    progress = _progress(args.quiet)
     unmatched: list[Track] = []
-    for name, tracks in select_tracks(source, liked=args.liked, playlist=args.playlist, on_skip=_warn):
+    near_misses: list[tuple[Track, Match]] = []
+    selected = select_tracks(source, liked=args.liked, playlist=args.playlist, on_skip=_warn, progress=progress)
+    for name, tracks in selected:
         destination = args.to_playlist or (f"{LIKED} (from {args.source.title()})" if name == LIKED else name)
         result = import_tracks(
-            target,
-            tracks,
-            destination,
-            min_score=args.min_score,
-            dry_run=args.dry_run,
-            progress=_progress(args.quiet),
+            target, tracks, destination, min_score=args.min_score, dry_run=args.dry_run, progress=progress
         )
         print(result.summary())
         unmatched.extend(result.unmatched)
-    _report_unmatched(unmatched, args.unmatched)
+        near_misses.extend(result.near_misses)
+    _report_unmatched(unmatched, near_misses, args.unmatched)
     return 0
 
 
@@ -257,6 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
     export = add("export", cmd_export, "save liked songs or playlists as CSV")
     _add_selection(export)
     export.add_argument("-o", "--output", metavar="PATH", help="CSV file (a folder with --all)")
+    export.add_argument("-q", "--quiet", action="store_true", help="no progress output")
 
     imp = add("import", cmd_import, "add the tracks of a CSV file to a playlist")
     imp.add_argument("file", help="CSV file (see the README for the format)")

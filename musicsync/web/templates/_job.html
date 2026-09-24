@@ -1,0 +1,19 @@
+{# The progress of an export, import or transfer. static/app.js fills it in. #}
+<section id="job" class="card job" hidden>
+  <div class="card-head">
+    <h2 id="job-title">Starting</h2>
+    <span id="job-clock" class="muted small" title="Time taken"></span>
+  </div>
+  <ol id="job-steps" class="steps" hidden></ol>
+  <p id="job-text" class="small"></p>
+  <progress id="job-bar" aria-label="Progress"></progress>
+  <p id="job-numbers" class="small muted"></p>
+  <p id="job-current" class="tiny muted current-track"></p>
+  <p id="job-download" hidden><a id="job-download-link" class="btn primary">Download the CSV again</a></p>
+  <div id="job-unmatched" hidden>
+    <p id="job-unmatched-title" class="small strong"></p>
+    <ul id="job-unmatched-list" class="list"></ul>
+    <p id="job-unmatched-more" class="tiny muted"></p>
+    <p><a id="job-unmatched-link" class="btn tiny">Download all (CSV)</a></p>
+  </div>
+</section>

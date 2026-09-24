@@ -80,6 +80,7 @@ def _next_cursor(doc: dict[str, Any]) -> str | None:
 
 class TidalProvider(Provider):
     name = "tidal"
+    add_batch = BATCH
 
     def __init__(self, api: ApiClient, catalog: ApiClient | None = None, country: str = "US"):
         self.api = api  # the user's own token
@@ -128,10 +129,13 @@ class TidalProvider(Provider):
     def lookup_isrcs(self, isrcs: Collection[str]) -> dict[str, list[Track]]:
         found: dict[str, list[Track]] = {}
         for batch in batched(sorted(isrcs), BATCH, strict=False):  # 20 codes per request
-            doc = self._get(self.catalog, "/tracks", {"filter[isrc]": list(batch), "include": "artists,albums"})
-            for track in parse_tracks(doc):
-                if track.isrc:
-                    found.setdefault(track.isrc, []).append(track)
+            # One ISRC can be on several releases (single, album, compilation), so 20 codes can find more
+            # tracks than fit on one page. Without the next pages those codes would seem unknown.
+            params = {"filter[isrc]": list(batch), "include": "artists,albums"}
+            for doc in self._pages(self.catalog, "/tracks", params):
+                for track in parse_tracks(doc):
+                    if track.isrc:
+                        found.setdefault(track.isrc, []).append(track)
         return found
 
     def search(self, query: str) -> list[Track]:

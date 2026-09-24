@@ -8,9 +8,9 @@ Move liked songs and playlists between Spotify, Tidal and CSV files. Use it from
 | **Tidal** | `export` | `transfer` | |
 | **CSV** | | `import` | `import` |
 
-- Tracks are matched by ISRC when there is one, otherwise by title, artist and length. A live version is never taken for the studio version.
+- Tracks are matched by ISRC when there is one, otherwise by title, artist and length. A live version is never taken for the studio version. See [How tracks are matched](#how-tracks-are-matched).
+- Tracks that cannot be found are listed with the closest candidate and its score, and can be saved to a CSV file.
 - Running a command twice does not add tracks twice.
-- Tracks that cannot be found are listed, and can be saved to a CSV file.
 - `--dry-run` looks everything up and changes nothing.
 
 Music-Sync only works with playlist data such as titles, artists and ISRCs. It never touches audio.
@@ -117,7 +117,9 @@ music-sync playlists tidal          # list playlists with their ids
 music-sync status                   # what is set up and logged in
 ```
 
-`--min-score 0.8` sets how sure a text match must be. Lower it to accept doubtful matches, raise it to be stricter. Put `-v` before the command (`music-sync -v transfer ...`) to log every API call. That helps in a bug report.
+While it works, Music-Sync shows each step on one line: reading the source, finding the tracks (with how many were found so far and the time left), checking what the playlist already has, and adding. `-q` turns that off.
+
+`--min-score 0.8` sets how sure a text match must be. Lower it to accept doubtful matches, raise it to be stricter. The list of tracks that were not found shows the closest candidate and its score, so you can see what a lower score would let in. Put `-v` before the command (`music-sync -v transfer ...`) to log every API call. That helps in a bug report.
 
 ## CSV format
 
@@ -141,9 +143,25 @@ Files must be UTF-8 (the BOM from Excel is fine). The column names of other expo
 music-sync web              # then open http://127.0.0.1:8888
 ```
 
-Export, import and transfer in a browser, with progress for long jobs. It uses the same logins as the command line.
+Export, import and transfer in a browser. It uses the same logins as the command line.
+
+Every export, import and transfer runs in the background. The page shows which step it is in, how far along that step is, how long it has taken and about how long it will still take, and which tracks were not found so far. The browser tab shows the percentage too, so you can do something else meanwhile. An export downloads its CSV as soon as it is ready.
 
 It is meant for one person on their own computer. It only listens on `127.0.0.1` and refuses requests that another website started, so never expose it to a network. The port must match your redirect URIs. `--port` changes it.
+
+## How tracks are matched
+
+1. A track that already has an id on the target service (a CSV exported from it) is used as it is.
+2. Otherwise its ISRC, the code of the recording, is looked up. One ISRC can be on the single, the album and a compilation; the edition from the same album wins.
+3. Otherwise Music-Sync searches, from specific to loose: the title as written with the first artist, the title without "(feat. ...)" and "- Remastered 2011" with the artist, the same without accents and punctuation, and the title alone (for an artist the other service spells differently). It stops as soon as a search gives a convincing match. A search that the service refuses does not stop the others.
+
+Each search result gets a score from 0 to 1: half for the title, 0.4 for the artist and 0.1 for the length. Differences that do not change the recording are ignored:
+
+- "- Remastered 2011", "(Mono Version)", "(Original Mix)" and "feat." parts; en dashes, curly apostrophes, "&" or "and", "Pt." or "Part"
+- artists written together or apart ("Macklemore & Ryan Lewis" or "Macklemore" and "Ryan Lewis"), "The", accents, "Ke$ha"
+- word order, and titles whose main part is in brackets: "(I Can't Get No) Satisfaction"
+
+A different artist scores 0. Another version halves the title score, so it stays below 0.8: live, remix, acoustic, instrumental, a cappella, demo, karaoke, cover, radio edit, extended, sped up, slowed and re-recordings like "(Taylor's Version)". Among equal scores the closest full title wins ("Song (A Remix)" over "Song (B Remix)"), then the same album. A CSV with titles only is matched on title and length.
 
 ## Good to know
 

@@ -2,19 +2,53 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Collection, Iterator, Mapping
+from functools import partial
 
-from ..matching import best_match, score, simplify_title
+from ..errors import ApiError
+from ..matching import best_match, rank, searchable, simplify_title
 from ..models import Match, PlaylistInfo, Track
+
+# HTTP statuses that mean "this one query or code cannot be looked up", as opposed to "the run is broken".
+UNLOOKUPABLE = (400, 404)
+# A search hit this good ends the search: the remaining queries are not going to find a better one.
+CONVINCING = 0.95
+
+
+def search_queries(track: Track) -> list[str]:
+    """What to search for, most specific first: the title as written, without "(feat. ...)" and
+    "- Remastered" noise, without accents and punctuation, and the title alone (for an artist that the
+    other service spells differently). Queries that differ only in case or spacing are asked once."""
+    simple = simplify_title(track.title)
+    queries = [
+        f"{track.title} {track.artist}",
+        f"{simple} {track.artist}",
+        f"{searchable(simple)} {searchable(track.artist)}",
+        simple,
+    ]
+    unique: dict[str, str] = {}
+    for query in queries:
+        unique.setdefault(" ".join(query.casefold().split()), " ".join(query.split()))
+    return [query for query in unique.values() if query]
 
 
 class Provider(ABC):
     """One music service. ``name`` is also the key of its ids in ``Track.ids``."""
 
     name: str
+    add_batch = 100  # tracks per "add to playlist" request
+
+    @property
+    def label(self) -> str:
+        """The name to show people: "Spotify", "Tidal"."""
+        return self.name.title()
 
     @abstractmethod
     def liked_tracks(self) -> Iterator[Track]:
         """The user's liked / saved tracks."""
+
+    def liked_count(self) -> int | None:
+        """How many liked tracks there are, if the service says so without reading them all."""
+        return None
 
     @abstractmethod
     def playlists(self) -> list[PlaylistInfo]:
@@ -50,13 +84,10 @@ class Provider(ABC):
         by_id = next((p for p in playlists if p.id == name_or_id), None)
         return by_id or next((p for p in playlists if p.name.casefold() == name_or_id.casefold()), None)
 
-    def resolve(
-        self,
-        track: Track,
-        min_score: float = 0.8,
-        known_isrcs: Mapping[str, list[Track]] | None = None,
-    ) -> Match | None:
-        """Find ``track`` here by id, then ISRC, then search. ``known_isrcs`` is a bulk lookup done by the caller."""
+    def find(self, track: Track, known_isrcs: Mapping[str, list[Track]] | None = None) -> Match | None:
+        """The closest thing to ``track`` here: by id, then ISRC, then search. ``known_isrcs`` is a bulk lookup
+        done by the caller. A search hit can score below what the caller accepts, so it can tell the user
+        what came closest; None means nothing came close at all."""
         if self.native_id(track):
             return Match(track, 1.0, "id")
         if track.isrc:
@@ -64,11 +95,18 @@ class Provider(ABC):
             found = known_isrcs.get(isrc, []) if known_isrcs is not None else self.lookup_isrcs([isrc]).get(isrc, [])
             if found:
                 # An ISRC can appear on several releases of one recording; take the closest edition.
-                return Match(max(found, key=lambda candidate: score(track, candidate)), 1.0, "isrc")
+                return Match(max(found, key=partial(rank, track)), 1.0, "isrc")
 
-        # Search on title and artist, as written and then without "(feat. ...)" and "- Remastered" noise.
-        queries = dict.fromkeys([f"{track.title} {track.artist}", f"{simplify_title(track.title)} {track.artist}"])
-        for query in queries:
-            if hit := best_match(track, self.search(query.strip()), min_score):
-                return Match(hit[0], hit[1], "search")
-        return None
+        best: tuple[Track, float] | None = None
+        for query in search_queries(track):
+            try:
+                results = self.search(query)
+            except ApiError as exc:
+                if exc.status not in UNLOOKUPABLE:
+                    raise
+                continue  # the service could not handle this query; the next one may do
+            # The best of this search and the earlier ones; on a tie the earlier, more specific search wins.
+            best = best_match(track, [best[0], *results] if best else results, min_score=0)
+            if best and best[1] >= CONVINCING:
+                break
+        return Match(best[0], best[1], "search") if best and best[1] > 0 else None

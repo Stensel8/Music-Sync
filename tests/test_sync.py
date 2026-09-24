@@ -2,7 +2,8 @@ import pytest
 
 from musicsync.errors import ApiError, ProviderError, QuotaExceeded
 from musicsync.models import Track
-from musicsync.sync import import_tracks, resolve_tracks, select_tracks
+from musicsync.providers.base import search_queries
+from musicsync.sync import Step, import_tracks, resolve_tracks, select_tracks
 
 from .support import ISRC_A, FakeProvider, track
 
@@ -83,7 +84,7 @@ def test_one_track_that_cannot_be_looked_up_does_not_stop_the_run():
                 raise ApiError(400, "bad query")
             return super().search(query)
 
-    matches, unmatched = resolve_tracks(
+    matches, unmatched, _ = resolve_tracks(
         Flaky(catalog=CATALOG), [Track("Broken", ["X"]), Track("Song B", ["Artist B"], duration_ms=180_000)]
     )
     assert len(matches) == 1 and len(unmatched) == 1
@@ -100,13 +101,102 @@ def test_quota_and_server_errors_stop_the_run(error):
 
 
 def test_progress_is_reported_for_every_track():
-    seen = []
-    resolve_tracks(
-        FakeProvider(catalog=CATALOG),
-        source_tracks(),
-        progress=lambda done, total, t, m: seen.append((done, total, m is not None)),
-    )
-    assert seen == [(1, 4, True), (2, 4, True), (3, 4, False), (4, 4, True)]
+    steps: list[Step] = []
+    resolve_tracks(FakeProvider(catalog=CATALOG), source_tracks(), progress=steps.append)
+    assert [(s.phase, s.done, s.total, s.match is not None) for s in steps] == [
+        ("match", 1, 4, True),
+        ("match", 2, 4, True),
+        ("match", 3, 4, False),
+        ("match", 4, 4, True),
+    ]
+    assert steps[0].text == "Finding the tracks on Fake" and steps[2].track == source_tracks()[2]
+
+
+def test_a_track_that_came_close_is_reported_with_its_closest_candidate():
+    near = Track("Song B (Live)", ["Artist B"], duration_ms=180_000)  # only the studio version is there
+    steps: list[Step] = []
+    matches, unmatched, near_misses = resolve_tracks(FakeProvider(catalog=CATALOG), [near], progress=steps.append)
+    assert matches == [] and unmatched == [near]
+    ((track, closest),) = near_misses
+    assert track is near and closest.track.title == "Song B" and 0 < closest.score < 0.8
+    assert steps[0].match is None and steps[0].closest == closest
+
+
+def test_an_import_reports_each_step():
+    service = FakeProvider(catalog=CATALOG)
+    service.existing_playlist("Mix", CATALOG[0])
+    steps: list[Step] = []
+    import_tracks(service, source_tracks(), "Mix", progress=steps.append)
+    assert [(s.phase, s.done, s.total) for s in steps if s.phase != "match"] == [
+        ("check", 1, 1),
+        ("add", 0, 1),
+        ("add", 1, 1),
+    ]
+    assert steps[-1].text == "Adding to Mix on Fake"
+
+
+def test_tracks_are_added_in_batches_with_progress_for_each():
+    tracks = [track(f"Song {i}", ids={"fake": str(i)}) for i in range(5)]
+    service = FakeProvider()
+    service.add_batch = 2
+    steps: list[Step] = []
+    import_tracks(service, tracks, "Mix", progress=steps.append)
+    assert service.add_calls == 3
+    assert [s.done for s in steps if s.phase == "add"] == [0, 2, 4, 5]
+
+
+# --- finding one track ----------------------------------------------------------------------------------
+
+
+def test_the_searches_go_from_specific_to_loose_without_repeats():
+    assert search_queries(Track("J\u00f3ga - Remastered", ["Bj\u00f6rk"])) == [
+        "J\u00f3ga - Remastered Bj\u00f6rk",
+        "J\u00f3ga Bj\u00f6rk",
+        "joga bjork",
+        "J\u00f3ga",
+    ]
+    assert search_queries(Track("Blinding Lights", ["The Weeknd"])) == ["Blinding Lights The Weeknd", "Blinding Lights"]
+    assert search_queries(Track("Get Lucky")) == ["Get Lucky"]
+
+
+class Scripted(FakeProvider):
+    """Answers each search from a script, and remembers what was asked."""
+
+    def __init__(self, answers: dict[str, list[Track] | Exception]):
+        super().__init__()
+        self.answers = answers
+        self.asked: list[str] = []
+
+    def search(self, query):
+        self.asked.append(query)
+        answer = self.answers.get(query, [])
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def test_a_search_the_service_refuses_does_not_stop_the_other_searches():
+    wanted = Track("Song (feat. X)", ["Artist"], duration_ms=200_000)
+    right = track("Song", ids={"fake": "1"})
+    service = Scripted({"Song (feat. X) Artist": ApiError(400, "bad query"), "Song Artist": [right]})
+    match = service.find(wanted)
+    assert match is not None and match.track is right and service.asked[:2] == ["Song (feat. X) Artist", "Song Artist"]
+
+
+def test_the_best_hit_of_all_searches_wins_and_a_convincing_one_ends_the_search():
+    wanted = Track("Song - Remastered", ["Artist"], duration_ms=200_000)
+    live, studio = track("Song (Live)", ids={"fake": "1"}), track("Song", ids={"fake": "2"})
+    service = Scripted({"Song - Remastered Artist": [live], "Song Artist": [studio]})
+    match = service.find(wanted)
+    assert match is not None and match.track is studio and match.score == 1.0
+    assert service.asked == ["Song - Remastered Artist", "Song Artist"]  # no need for the looser searches
+
+
+def test_find_returns_what_came_closest_even_when_it_is_not_good_enough():
+    service = Scripted({"Song Artist": [track("Song (Live)", ids={"fake": "1"})]})
+    match = service.find(Track("Song", ["Artist"], duration_ms=200_000))
+    assert match is not None and match.score < 0.8
+    assert Scripted({}).find(Track("Song", ["Artist"])) is None  # nothing at all
 
 
 class TestSelectTracks:
@@ -119,6 +209,22 @@ class TestSelectTracks:
         assert [(name, len(tracks)) for name, tracks in select_tracks(self.service(), liked=True)] == [
             ("Liked Songs", 1)
         ]
+
+    def test_reading_is_reported_with_the_total_the_service_gives(self):
+        steps: list[Step] = []
+        select_tracks(self.service(), playlist="Road trip", progress=steps.append)
+        assert [(s.phase, s.text, s.done, s.total) for s in steps] == [("read", "Reading Road trip from Fake", 1, 1)]
+
+    def test_an_unknown_or_wrong_total_is_corrected_at_the_end(self):
+        service = self.service()
+        steps: list[Step] = []
+        select_tracks(service, liked=True, progress=steps.append)  # the fake does not know how many there are
+        assert [(s.done, s.total) for s in steps] == [(1, None), (1, 1)]
+
+        service.liked_count = lambda: 5  # type: ignore[method-assign]  # out of date
+        steps.clear()
+        select_tracks(service, liked=True, progress=steps.append)
+        assert [(s.done, s.total) for s in steps] == [(1, 5), (1, 1)]
 
     def test_one_playlist_by_name_or_id(self):
         service = self.service()

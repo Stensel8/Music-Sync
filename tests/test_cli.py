@@ -110,6 +110,41 @@ def test_transfer_between_services(tmp_path):
     assert cli.main(["transfer", "spotify", "spotify", "--liked"], services) == 1
 
 
+def test_a_transfer_shows_each_step_and_what_came_closest(tmp_path, capsys):
+    liked = [Track("Song A", ["Artist A"], isrc=ISRC_A), Track("Song B (Live)", ["Artist B"], duration_ms=200_000)]
+    tidal = FakeProvider("tidal", CATALOG)
+    services = FakeServices(tmp_path, spotify=FakeProvider("spotify", liked=liked), tidal=tidal)
+    assert cli.main(["transfer", "spotify", "tidal", "--liked"], services) == 0
+    captured = capsys.readouterr()
+    # Not a terminal, so one line per completed step instead of a line redrawn in place.
+    assert captured.err.splitlines() == [
+        "Reading Liked Songs from Spotify  [####################]  2/2",
+        "Finding the tracks on Tidal  [####################]  2/2  1 found, 1 not found",
+        "Adding to Liked Songs (from Spotify) on Tidal  [####################]  1/1",
+    ]
+    assert "Artist B - Song B (Live)  (closest: Artist B - Song B, score 0.75)" in captured.out
+
+
+def test_on_a_terminal_the_line_is_redrawn_in_place(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr("sys.stderr.isatty", lambda: True)
+    services = FakeServices(tmp_path, spotify=FakeProvider("spotify", liked=[track("One"), track("Two")]))
+    assert cli.main(["export", "spotify", "--liked", "-o", str(tmp_path / "out.csv")], services) == 0
+    lines = capsys.readouterr().err.split("\r")[1:]  # each drawing starts by going back to the start of the line
+    # The fake does not say how many liked songs there are, so the count comes without a total at first.
+    assert [line.rstrip() for line in lines] == [
+        "Reading Liked Songs from Spotify  1 so far",
+        "Reading Liked Songs from Spotify  2 so far",
+        "Reading Liked Songs from Spotify  [####################]  2/2",
+    ]
+    assert lines[-1].endswith("\n")  # a complete step ends its line
+
+
+def test_quiet_means_no_progress(tmp_path, capsys):
+    services = FakeServices(tmp_path, spotify=FakeProvider("spotify", liked=[track("One")]))
+    assert cli.main(["export", "spotify", "--liked", "-q", "-o", str(tmp_path / "out.csv")], services) == 0
+    assert capsys.readouterr().err == ""
+
+
 def test_missing_credentials_are_explained_not_a_crash(tmp_path, capsys):
     services = Services(Settings(), TokenStore(tmp_path / "tokens.json"))
     assert cli.main(["playlists", "spotify"], services) == 1

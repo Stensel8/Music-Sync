@@ -162,7 +162,22 @@ def test_add_to_playlist_skips_duplicates_server_side_in_batches_of_twenty(tidal
 
 
 @responses.activate
-def test_resolve_finds_a_track_by_isrc_through_the_bulk_lookup(tidal):
+def test_an_isrc_lookup_reads_every_page(tidal):
+    # One ISRC is often on a single, an album and a compilation: 20 codes can fill more than one page.
+    next_page = "/tracks?page%5Bcursor%5D=P2"
+    responses.get(
+        f"{API}/tracks",
+        json={"data": [tidal_track("111", isrc=ISRC_A)], "included": INCLUDED, "links": {"next": next_page}},
+    )
+    responses.get(f"{API}/tracks", json={"data": [tidal_track("222", isrc=ISRC_B)], "included": INCLUDED})
+    found = tidal.lookup_isrcs([ISRC_A, ISRC_B])
+    assert sorted(found) == [ISRC_A, ISRC_B]
+    second = sent_query(responses.calls[1])
+    assert second["page[cursor]"] == ["P2"] and second["filter[isrc]"] == [ISRC_A, ISRC_B]
+
+
+@responses.activate
+def test_find_finds_a_track_by_isrc_through_the_bulk_lookup(tidal):
     responses.get(f"{API}/tracks", json={"data": [tidal_track("111", isrc=ISRC_B)], "included": INCLUDED})
-    match = tidal.resolve(Track("Whatever", ["Someone"], isrc=ISRC_B))
+    match = tidal.find(Track("Whatever", ["Someone"], isrc=ISRC_B))
     assert match is not None and match.method == "isrc" and match.track.ids == {"tidal": "111"}

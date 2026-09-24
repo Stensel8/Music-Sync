@@ -9,7 +9,9 @@ from musicsync.csvio import parse_csv
 from musicsync.errors import ApiError
 from musicsync.models import Track
 from musicsync.oauth import Token
+from musicsync.sync import Step
 from musicsync.web import create_app
+from musicsync.web.jobs import Job
 
 from .support import ISRC_A, FakeProvider, FakeServices, track
 
@@ -59,8 +61,10 @@ def test_the_pages_load_nothing_from_other_sites(client, services):
     services.store.save("spotify", Token("A", "R", time.time() + 100))
     for path in ("/", "/login", "/spotify/account"):
         page = client.get(path).get_data(as_text=True)
-        assert "/static/style.css" in page and not re.search(r"(?:src|href)=[\"']?https?:", page), path
+        assert "/static/style.css" in page and "/static/app.js" in page, path
+        assert not re.search(r"(?:src|href)=[\"']?https?:", page), path
     assert client.get("/static/style.css").mimetype == "text/css"
+    assert "javascript" in client.get("/static/app.js").mimetype
 
 
 def test_a_service_without_a_client_id_says_where_to_put_it(tmp_path):
@@ -160,7 +164,7 @@ def test_the_account_page_lists_playlists_and_escapes_their_names(client, servic
     services.providers["spotify"].existing_playlist("<b>Bold</b> mix", track("T"))  # type: ignore[attr-defined]
     page = client.get("/spotify/account").get_data(as_text=True)
     assert "&lt;b&gt;Bold&lt;/b&gt; mix" in page and "<b>Bold</b>" not in page
-    assert "/spotify/export?playlist=pl1" in page
+    assert 'data-service="spotify" data-export="pl1"' in page
 
 
 def test_playlists_you_cannot_read_have_no_export_link(client, services):
@@ -169,7 +173,7 @@ def test_playlists_you_cannot_read_have_no_export_link(client, services):
     spotify.existing_playlist("Followed")
     spotify.readable = False
     page = client.get("/spotify/account").get_data(as_text=True)
-    assert "cannot be read" in page and "playlist=pl1" not in page
+    assert "cannot be read" in page and 'data-export="pl1"' not in page
 
 
 def test_empty_playlists_have_no_export_link_and_are_refused(client, services):
@@ -177,9 +181,9 @@ def test_empty_playlists_have_no_export_link_and_are_refused(client, services):
     assert isinstance(spotify, FakeProvider)
     spotify.existing_playlist("Empty")
     page = client.get("/spotify/account").get_data(as_text=True)
-    assert "is empty" in page and "playlist=pl1" not in page
-    response = client.get("/spotify/export?playlist=Empty", headers=JSON)
-    assert response.status_code == 400 and "is empty" in response.get_json()["message"]
+    assert "is empty" in page and 'data-export="pl1"' not in page
+    job = wait_for(client, export(client, "spotify", "Empty").get_json()["id"])
+    assert job["status"] == "error" and "is empty" in job["message"]
 
 
 def test_the_account_page_sends_you_to_login_when_the_session_is_gone(tmp_path):
@@ -193,18 +197,38 @@ def test_the_account_page_sends_you_to_login_when_the_session_is_gone(tmp_path):
     assert response.status_code == 302 and str(response.location).endswith("/tidal/login")
 
 
-def test_export_liked_songs_and_a_playlist_as_csv(client, services):
-    response = client.get("/spotify/export")
-    assert response.mimetype == "text/csv" and "attachment" in response.headers["Content-Disposition"]
-    assert csv_tracks(response) == ["Song A", "Nope"]
+def export(client: FlaskClient, service: str, playlist: str | None = None):
+    return client.post(f"/{service}/export", json={"playlist": playlist}, headers=JSON)
+
+
+def test_export_runs_as_a_job_and_then_downloads_the_csv(client, services):
+    response = export(client, "spotify")
+    assert response.status_code == 202
+    job_id = response.get_json()["id"]
+    job = wait_for(client, job_id)
+    assert job["status"] == "done" and job["message"] == "Liked Songs: 2 tracks exported."
+    assert job["download"] and job["phases"] == ["read"] and job["title"] == "Export from Spotify"
+    download = client.get(f"/jobs/{job_id}/download")
+    assert download.mimetype == "text/csv" and "attachment" in download.headers["Content-Disposition"]
+    assert csv_tracks(download) == ["Song A", "Nope"]
 
     tidal = services.providers["tidal"]
     assert isinstance(tidal, FakeProvider)
-    tidal.existing_playlist("Road trip", track("In list"))
-    response = client.get("/tidal/export?playlist=Road trip")
-    assert "Road%20trip.csv" in response.headers["Content-Disposition"]
-    assert csv_tracks(response) == ["In list"]
-    assert client.get("/tidal/export?playlist=missing", headers=JSON).status_code == 400
+    tidal.existing_playlist("R\u00f6ad trip", track("In list"))
+    job_id = export(client, "tidal", "R\u00f6ad trip").get_json()["id"]
+    assert wait_for(client, job_id)["status"] == "done"
+    disposition = client.get(f"/jobs/{job_id}/download").headers["Content-Disposition"]
+    # The name with its accent for browsers that read filename*, an ASCII one for the rest.
+    assert "filename*=UTF-8''R%C3%B6ad%20trip.csv" in disposition and 'filename="Rad trip.csv"' in disposition
+
+    job = wait_for(client, export(client, "tidal", "missing").get_json()["id"])
+    assert job["status"] == "error" and "No playlist" in job["message"]
+
+
+def test_only_an_export_has_a_download(client):
+    job_id = client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON).get_json()["id"]
+    wait_for(client, job_id)
+    assert client.get(f"/jobs/{job_id}/download").status_code == 404
 
 
 # --- jobs: import and transfer ------------------------------------------------------------------------
@@ -225,7 +249,9 @@ def test_import_runs_as_a_job_and_reports_what_was_not_found(client, services):
     job_id = response.get_json()["id"]
     job = wait_for(client, job_id)
     assert job["status"] == "done" and job["message"] == "Mix: 1 matched, 1 not found; added 1"
-    assert job["unmatched"] == ["Nobody - Nothing"] and job["done"] == job["total"] == 2
+    assert job["unmatched"] == [{"track": "Nobody - Nothing", "closest": None, "score": None}]
+    assert (job["found"], job["not_found"], job["phase"], job["done"], job["total"]) == (1, 1, "add", 1, 1)
+    assert job["phases"] == ["match", "check", "add"] and job["eta"] is None
 
     tidal = services.providers["tidal"]
     assert isinstance(tidal, FakeProvider)
@@ -250,6 +276,7 @@ def test_transfer_copies_liked_songs_to_the_other_service(client, services):
     response = client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON)
     job = wait_for(client, response.get_json()["id"])
     assert job["status"] == "done" and "Liked Songs (from Spotify): 1 matched, 1 not found" in job["message"]
+    assert job["title"] == "Transfer from Spotify to Tidal" and job["phases"] == ["read", "match", "check", "add"]
     tidal = services.providers["tidal"]
     assert isinstance(tidal, FakeProvider)
     assert [name for name, _ in tidal.playlists_by_id.values()] == ["Liked Songs (from Spotify)"]
@@ -300,6 +327,33 @@ def test_a_bug_inside_a_job_does_not_leak_details(services, client):
     assert job["status"] == "error" and "secret internal detail" not in job["message"]
 
 
+def test_a_track_not_found_comes_with_what_came_closest(client, services):
+    spotify = services.providers["spotify"]
+    assert isinstance(spotify, FakeProvider)
+    spotify.liked = [Track("Song B (Live)", ["Artist B"])]  # Tidal only has the studio version
+    job = wait_for(
+        client, client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON).get_json()["id"]
+    )
+    (miss,) = job["unmatched"]
+    assert miss["track"] == "Artist B - Song B (Live)" and miss["closest"] == "Artist B - Song B"
+    assert 0 < miss["score"] < 0.8
+
+
+def test_a_running_job_says_what_it_is_doing():
+    """The page shows the step, how far it is, and what it could not find so far."""
+    job = Job("id", "transfer", "Transfer from Spotify to Tidal")
+    job.progress(Step("read", "Reading Liked Songs from Spotify", 10, None))
+    assert (job.phase, job.done, job.total) == ("read", 10, None)
+    job.progress(Step("match", "Finding the tracks on Tidal", 1, 3, Track("A", ["X"]), None))
+    job.progress(Step("match", "Finding the tracks on Tidal", 2, 3, Track("B", ["X"]), None))
+    shown = job.to_json()
+    assert (shown["phase"], shown["done"], shown["total"]) == ("match", 2, 3)
+    assert shown["text"] == "Finding the tracks on Tidal"
+    assert (shown["found"], shown["not_found"], shown["current"]) == (0, 2, "X - B")
+    assert shown["status"] == "running" and shown["unmatched_count"] == 2 and not shown["download"]
+
+
 def test_unknown_jobs_are_a_404(client):
     assert client.get("/jobs/nope", headers=JSON).status_code == 404
     assert client.get("/jobs/nope/unmatched.csv").status_code == 404
+    assert client.get("/jobs/nope/download").status_code == 404

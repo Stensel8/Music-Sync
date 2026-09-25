@@ -285,7 +285,7 @@ def test_import_runs_as_a_job_and_reports_what_was_not_found(client, services):
     assert job["status"] == "done" and job["message"] == "Mix: 1 matched, 1 not found; added 1"
     assert job["unmatched"] == [{"track": "Nobody - Nothing", "reason": "not on Tidal", "closest": None}]
     assert (job["found"], job["not_found"], job["phase"], job["done"], job["total"]) == (1, 1, "add", 1, 1)
-    assert job["phases"] == ["match", "check", "add"] and job["eta"] is None
+    assert job["phases"] == ["check", "match", "add"] and job["eta"] is None
 
     tidal = services.providers["tidal"]
     assert isinstance(tidal, FakeProvider)
@@ -310,7 +310,7 @@ def test_transfer_copies_liked_songs_to_the_other_service(client, services):
     response = client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON)
     job = wait_for(client, response.get_json()["id"])
     assert job["status"] == "done" and "Liked Songs (from Spotify): 1 matched, 1 not found" in job["message"]
-    assert job["title"] == "Transfer from Spotify to Tidal" and job["phases"] == ["read", "match", "check", "add"]
+    assert job["title"] == "Transfer from Spotify to Tidal" and job["phases"] == ["read", "check", "match", "add"]
     tidal = services.providers["tidal"]
     assert isinstance(tidal, FakeProvider)
     assert [name for name, _ in tidal.playlists_by_id.values()] == ["Liked Songs (from Spotify)"]

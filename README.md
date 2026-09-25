@@ -126,7 +126,7 @@ client_secret = "..."
 
 ## How tracks are matched
 
-A track is found by its id on the target service (a CSV exported from it), else by its ISRC, else by searching for title and artist. Each search result gets a score from 0 to 1: half for the title, 0.4 for the artist and 0.1 for the length. From 0.8 on (`--min-score`) it is a match.
+A track that is already in the target playlist is recognised without a lookup, so a second run is quick. Any other track is found by its id on the target service (a CSV exported from it), else by its ISRC, else by searching for title and artist. Each search result gets a score from 0 to 1: half for the title, 0.4 for the artist and 0.1 for the length. From 0.8 on (`--min-score`) it is a match.
 
 Remaster notes, "feat." parts, spelling and punctuation do not count. Another version does: live, remix, acoustic, instrumental, sped up, "(Taylor's Version)" and the like, and other numbers ("Part 1" is not "Part 2"). A track that is not found says why:
 
@@ -170,6 +170,13 @@ CI runs the same checks, plus `pip-audit`.
 
 ## License and credits
 
-[AGPL-3.0](LICENSE).
+[AGPL-3.0](LICENSE), the license csv2tidal started with.
 
-Music-Sync grew out of csv2tidal, started by [Nugman](https://github.com/Nugman) and roland.behme, who also chose the license. Their script was inspired by [RZetko](https://gist.github.com/RZetko/71801a20188e842ef03bed3b6d7a297f) and used login code from [spotify_to_tidal](https://github.com/timrae/spotify_to_tidal) by [Tim Rae](https://github.com/timrae).
+Music-Sync grew out of several projects, and stands on the work of these people:
+
+- **[csv2tidal](https://github.com/Nugman/csv2tidal)** (2022), the script this repository started as; its commits are still at the bottom of the history. [Nugman](https://github.com/Nugman) created it and chose the license, roland.behme wrote the first script and README. It added a CSV of albums to your Tidal favourites.
+- **[RZetko's gist](https://gist.github.com/RZetko/71801a20188e842ef03bed3b6d7a297f)**, *Export your CSV albums from various music streaming services to Tidal*: the inspiration for csv2tidal.
+- **[spotify_to_tidal](https://github.com/spotify2tidal/spotify_to_tidal)** by [Tim Rae](https://github.com/timrae) and [its contributors](https://github.com/spotify2tidal/spotify_to_tidal/graphs/contributors). csv2tidal borrowed its login code, and Music-Sync its idea to check the target playlist before looking anything up.
+- **[python-tidal](https://github.com/EbbLabs/python-tidal)** (tidalapi), started by [Thomas Amland](https://github.com/tamland) and maintained by [tehkillerbee](https://github.com/tehkillerbee), earlier also by [morguldir](https://github.com/morguldir). The gist, csv2tidal and the first Music-Sync were built on it; Music-Sync now uses Tidal's official API.
+- **The first Music-Sync**, a Flask prototype that copied Spotify tracks to Tidal, and the tool it became, by [Sten Tijhuis](https://github.com/Stensel8).
+- The colours of the web interface are the *night* theme of [daisyUI](https://daisyui.com).

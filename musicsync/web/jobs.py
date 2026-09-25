@@ -18,8 +18,8 @@ log = logging.getLogger(__name__)
 # The steps each kind of job goes through, in order. The page shows them as a row of numbered steps.
 PHASES: dict[str, tuple[Phase, ...]] = {
     "export": ("read",),
-    "import": ("match", "check", "add"),
-    "transfer": ("read", "match", "check", "add"),
+    "import": ("check", "match", "add"),
+    "transfer": ("read", "check", "match", "add"),
 }
 SHOWN_MISSES = 50  # tracks not found that the page lists; the CSV download has them all
 

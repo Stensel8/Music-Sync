@@ -6,7 +6,7 @@ from itertools import batched
 from typing import Literal
 
 from .errors import ApiError, ProviderError
-from .matching import rejection
+from .matching import best_match, rejection, song_key
 from .models import Match, PlaylistInfo, Track
 from .providers.base import UNLOOKUPABLE, Provider
 
@@ -14,7 +14,7 @@ LIKED = "Liked Songs"  # our name for a service's liked / saved tracks
 DESCRIPTION = "Imported with Music-Sync: https://github.com/Stensel8/Music-Sync"  # of the playlists it creates
 CHUNK = 20  # tracks per bulk ISRC lookup: what Tidal takes in one request
 
-# Reading the source, finding each track on the target, checking what the target playlist already has, adding.
+# Reading the source, checking what the target playlist already has, finding the other tracks there, adding.
 type Phase = Literal["read", "match", "check", "add"]
 
 
@@ -148,34 +148,67 @@ def _miss(track: Track, closest: Match | None, provider: Provider, min_score: fl
             return Miss(track, f"score too low for a match ({closest.score:.2f}, needs {min_score:.2f})", closest)
 
 
+class _Playlist:
+    """The tracks already in the target playlist, by id, ISRC and song, so that a source track that is
+    there needs no lookup. On a second run that is nearly every track (an idea from spotify_to_tidal)."""
+
+    def __init__(self, provider: Provider, tracks: Iterable[Track]):
+        self.provider = provider
+        self.by_id: dict[str, Track] = {}
+        self.by_isrc: dict[str, Track] = {}
+        self.by_song: dict[tuple[str, str], list[Track]] = {}
+        for track in tracks:
+            if native := provider.native_id(track):
+                self.by_id.setdefault(native, track)
+            if track.isrc:
+                self.by_isrc.setdefault(track.isrc.upper(), track)
+            self.by_song.setdefault(song_key(track), []).append(track)
+
+    def find(self, track: Track, min_score: float) -> Match | None:
+        if (native := self.provider.native_id(track)) and native in self.by_id:
+            return Match(self.by_id[native], 1.0, "playlist")
+        if track.isrc and (there := self.by_isrc.get(track.isrc.upper())):
+            return Match(there, 1.0, "playlist")
+        hit = best_match(track, self.by_song.get(song_key(track), []), min_score)
+        return Match(hit[0], hit[1], "playlist") if hit else None
+
+
 def resolve_tracks(
     provider: Provider,
     tracks: list[Track],
     min_score: float = 0.8,
     progress: Progress | None = None,
+    present: Iterable[Track] = (),
 ) -> tuple[list[Match], list[Miss]]:
-    """Look every track up on ``provider``. Returns the matches, and the tracks that were not found with why."""
+    """Look every track up on ``provider``, except the ones in ``present`` (the target playlist), which are
+    matched to those. Returns the matches, and the tracks that were not found with why."""
+    playlist = _Playlist(provider, present)
     matches: list[Match] = []
     misses: list[Miss] = []
     text = f"Finding the tracks on {provider.label}"
     for chunk in batched(tracks, CHUNK, strict=False):
-        # One request for the ISRCs of a whole chunk instead of one per track.
-        isrcs = {track.isrc.upper() for track in chunk if track.isrc and not provider.native_id(track)}
+        there = [playlist.find(track, min_score) for track in chunk]
+        # One request for the ISRCs of a whole chunk instead of one per track, for the tracks still to find.
+        isrcs = {
+            track.isrc.upper()
+            for track, match in zip(chunk, there, strict=True)
+            if track.isrc and not match and not provider.native_id(track)
+        }
         known = provider.lookup_isrcs(isrcs) if isrcs else {}
-        for track in chunk:
-            match: Match | None = None
+        for track, match in zip(chunk, there, strict=True):
             miss: Miss | None = None
-            try:
-                found = provider.find(track, known)
-            except ApiError as exc:
-                if exc.status not in UNLOOKUPABLE:
-                    raise
-                miss = Miss(track, f"{provider.label} could not look it up ({exc})")
-            else:
-                if found and found.score >= min_score:
-                    match = found
+            if match is None:
+                try:
+                    found = provider.find(track, known)
+                except ApiError as exc:
+                    if exc.status not in UNLOOKUPABLE:
+                        raise
+                    miss = Miss(track, f"{provider.label} could not look it up ({exc})")
                 else:
-                    miss = _miss(track, found, provider, min_score)
+                    if found and found.score >= min_score:
+                        match = found
+                    else:
+                        miss = _miss(track, found, provider, min_score)
             if match:
                 matches.append(match)
             if miss:
@@ -196,8 +229,17 @@ def import_tracks(
     progress: Progress | None = None,
 ) -> ImportResult:
     """Add ``tracks`` to the playlist called ``playlist`` (created if missing), skipping what is already in it."""
-    matches, misses = resolve_tracks(provider, tracks, min_score, progress)
+    existing = provider.find_playlist(playlist)
+    if existing and not existing.readable:
+        raise ProviderError(f'"{existing.name}" is not yours to change (you neither own nor collaborate on it).')
+    in_playlist: list[Track] = []
+    if existing:
+        text = f"Checking what is already in {existing.name} on {provider.label}"
+        in_playlist = _read(provider.playlist_tracks(existing.id), text, existing.track_count, progress, "check")
+
+    matches, misses = resolve_tracks(provider, tracks, min_score, progress, in_playlist)
     result = ImportResult(playlist_name=playlist, misses=misses, dry_run=dry_run)
+    result.playlist_id = existing.id if existing else None
 
     # Different source tracks can resolve to the same track on the target; keep the first of each.
     unique: dict[str, Match] = {}
@@ -207,16 +249,7 @@ def import_tracks(
     result.matched = list(unique.values())
     result.duplicates = len(matches) - len(unique)
 
-    existing = provider.find_playlist(playlist)
-    if existing and not existing.readable:
-        raise ProviderError(f'"{existing.name}" is not yours to change (you neither own nor collaborate on it).')
-    result.playlist_id = existing.id if existing else None
-    present: set[str] = set()
-    if existing:
-        text = f"Checking what is already in {existing.name} on {provider.label}"
-        in_playlist = _read(provider.playlist_tracks(existing.id), text, existing.track_count, progress, "check")
-        present = {native for track in in_playlist if (native := provider.native_id(track))}
-
+    present = {native for track in in_playlist if (native := provider.native_id(track))}
     new = [match.track for native, match in unique.items() if native not in present]
     result.already_there = len(unique) - len(new)
     result.added = len(new)

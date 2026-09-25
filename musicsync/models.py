@@ -48,4 +48,4 @@ class Match:
 
     track: Track
     score: float
-    method: Literal["id", "isrc", "search"]
+    method: Literal["id", "isrc", "search", "playlist"]  # "playlist": already in the target playlist, no lookup

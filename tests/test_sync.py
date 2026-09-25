@@ -46,6 +46,42 @@ def test_running_it_again_adds_nothing():
     assert service.add_calls == 1 and len(service.playlists_by_id) == 1
 
 
+def test_a_second_run_looks_up_nothing_the_playlist_already_has():
+    class Counting(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__(catalog=CATALOG)
+            self.searches: list[str] = []
+
+        def search(self, query):
+            self.searches.append(query)
+            return super().search(query)
+
+    service = Counting()
+    findable = source_tracks()[:2]  # one found by ISRC, one by a search
+    import_tracks(service, findable, "Mix")
+    asked = (list(service.searches), list(service.isrc_lookups))
+
+    again = import_tracks(service, findable, "Mix")
+    assert (service.searches, service.isrc_lookups) == asked  # not one lookup more
+    assert [m.method for m in again.matched] == ["playlist", "playlist"]
+    assert (again.already_there, again.added) == (2, 0)
+
+
+@pytest.mark.parametrize(
+    "wanted",
+    [
+        Track("Whatever", ["Someone"], ids={"fake": "1"}),  # its id on the target
+        Track("Whatever", ["Someone"], isrc=ISRC_A),  # its ISRC
+        Track("Song A (feat. X) - Remastered", ["Artist A"], duration_ms=200_000),  # its title and artist
+    ],
+)
+def test_a_track_in_the_playlist_is_recognised_by_id_isrc_or_song(wanted):
+    service = FakeProvider()  # an empty catalogue: a lookup would find nothing
+    service.existing_playlist("Mix", CATALOG[0])
+    (match,), misses = resolve_tracks(service, [wanted], present=[CATALOG[0]])
+    assert misses == [] and match.method == "playlist" and match.track is CATALOG[0]
+
+
 def test_only_the_new_tracks_are_added_to_an_existing_playlist():
     service = FakeProvider(catalog=CATALOG)
     service.existing_playlist("Mix", CATALOG[0])

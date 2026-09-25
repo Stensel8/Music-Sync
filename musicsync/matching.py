@@ -182,6 +182,11 @@ def score(wanted: Track, candidate: Track) -> float:
     return round(TITLE_WEIGHT * title + ARTIST_WEIGHT * artist + DURATION_WEIGHT * duration, 4)
 
 
+def song_key(track: Track) -> tuple[str, str]:
+    """The main title and the first artist in comparable form: a quick way to find the same song among many."""
+    return normalize(track.title), _artist_key(_fold(track.artist))
+
+
 def rejection(wanted: Track, candidate: Track) -> str:
     """Why ``candidate``, which scored too low, is not ``wanted``: "other song" (only the artist is the
     same), "other version" (live, remix and the like) or "low score" (close, but not close enough)."""

@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from functools import partial
 from itertools import batched
 from typing import Literal
 
@@ -214,24 +215,29 @@ def resolve_tracks(
 def import_tracks(
     provider: Provider,
     tracks: list[Track],
-    playlist: str,
+    playlist: str | None,
     *,
     min_score: float = 0.8,
     dry_run: bool = False,
     description: str = DESCRIPTION,
     progress: Progress | None = None,
 ) -> ImportResult:
-    """Add ``tracks`` to the playlist called ``playlist`` (created if missing), skipping what is already in it."""
-    existing = provider.find_playlist(playlist)
-    if existing and not existing.readable:
-        raise ProviderError(f'"{existing.name}" is not yours to change (you neither own nor collaborate on it).')
-    in_playlist: list[Track] = []
-    if existing:
+    """Add ``tracks`` to the playlist called ``playlist`` (created if missing), or with None to the liked
+    songs, skipping what is already there."""
+    existing = None
+    if playlist is None:  # to the favourites (liked songs), like spotify_to_tidal --sync-favorites
+        text, total = f"Checking your liked songs on {provider.label}", provider.liked_count() if progress else None
+        already = _read(provider.liked_tracks(), text, total, progress, "check")
+    elif existing := provider.find_playlist(playlist):
+        if not existing.readable:
+            raise ProviderError(f'"{existing.name}" is not yours to change (you neither own nor collaborate on it).')
         text = f"Checking what is already in {existing.name} on {provider.label}"
-        in_playlist = _read(provider.playlist_tracks(existing.id), text, existing.track_count, progress, "check")
+        already = _read(provider.playlist_tracks(existing.id), text, existing.track_count, progress, "check")
+    else:
+        already = []
 
-    matches, misses = resolve_tracks(provider, tracks, min_score, progress, in_playlist)
-    result = ImportResult(playlist, existing.id if existing else None, misses=misses, dry_run=dry_run)
+    matches, misses = resolve_tracks(provider, tracks, min_score, progress, already)
+    result = ImportResult(playlist or LIKED, existing.id if existing else None, misses=misses, dry_run=dry_run)
 
     # Different source tracks can resolve to the same track on the target; keep the first of each.
     unique: dict[str, Match] = {}
@@ -241,18 +247,22 @@ def import_tracks(
     result.matched = list(unique.values())
     result.duplicates = len(matches) - len(unique)
 
-    present = {native for track in in_playlist if (native := provider.native_id(track))}
+    present = {native for track in already if (native := provider.native_id(track))}
     new = [match.track for native, match in unique.items() if native not in present]
     result.already_there = len(unique) - len(new)
     result.added = len(new)
     if new and not dry_run:
-        text = f"Adding to {playlist} on {provider.label}"
+        text = f"Adding to {result.playlist_name} on {provider.label}"
         if progress:
             progress(Step("add", text, 0, len(new)))
-        result.playlist_id = result.playlist_id or provider.create_playlist(playlist, description)
+        if playlist is None:
+            add, size = provider.add_favorite_tracks, provider.favorite_batch
+        else:
+            result.playlist_id = result.playlist_id or provider.create_playlist(playlist, description)
+            add, size = partial(provider.add_to_playlist, result.playlist_id), provider.add_batch
         added = 0
-        for batch in batched(new, provider.add_batch, strict=False):  # one request each
-            provider.add_to_playlist(result.playlist_id, list(batch))
+        for batch in batched(new, size, strict=False):  # one request each
+            add(list(batch))
             added += len(batch)
             if progress:
                 progress(Step("add", text, added, len(new)))

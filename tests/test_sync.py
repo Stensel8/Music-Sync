@@ -73,6 +73,17 @@ def test_a_track_in_the_playlist_is_recognised_by_id_isrc_or_song(wanted):
     assert misses == [] and match.method == "playlist" and match.track is CATALOG[0]
 
 
+def test_tracks_can_go_to_the_favourites_skipping_what_is_already_there():
+    service = FakeProvider(catalog=CATALOG, liked=[CATALOG[0]])
+    steps: list[Step] = []
+    result = import_tracks(service, source_tracks(), None, progress=steps.append)
+    assert result.playlist_name == "Liked Songs" and service.playlists_by_id == {}  # no playlist made
+    assert (result.added, result.already_there) == (1, 1)
+    assert [service.native_id(t) for t in service.liked] == ["1", "2"]
+    assert steps[0].text == "Checking your liked songs on Fake"
+    assert steps[-1].text == "Adding to Liked Songs on Fake"
+
+
 def test_only_the_new_tracks_are_added_to_an_existing_playlist():
     service = FakeProvider(catalog=CATALOG)
     service.existing_playlist("Mix", CATALOG[0])

@@ -82,6 +82,10 @@ class FakeProvider(Provider):
         self.add_calls += 1
         self.playlists_by_id[playlist_id][1].extend(tracks)
 
+    def add_favorite_tracks(self, tracks: list[Track]) -> None:
+        self.add_calls += 1
+        self.liked.extend(tracks)
+
     def existing_playlist(self, name: str, *tracks: Track) -> str:
         """Test shortcut: a playlist that was already there, so it does not count as an add call."""
         playlist_id = self.create_playlist(name)

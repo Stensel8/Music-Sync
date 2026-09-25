@@ -48,6 +48,7 @@ The dashboard has three parts: export to CSV, import a CSV, and transfer between
 music-sync login spotify                          # once per service
 music-sync login tidal
 
+music-sync transfer spotify tidal --sync-favorites   # liked songs, to your Tidal favourites
 music-sync transfer spotify tidal --liked         # liked songs, to a new playlist
 music-sync transfer spotify tidal --playlist "Road trip"
 music-sync export spotify --liked -o liked.csv
@@ -64,6 +65,7 @@ music-sync doctor                                 # tries the real APIs
 | `--unmatched FILE` | Save the tracks that were not found to a CSV |
 | `--min-score 0.8` | How sure a match must be (0 to 1) |
 | `--to-playlist NAME` | The playlist to fill (transfer) |
+| `--to-favorites` | Add to your favourites (liked songs) instead of a playlist (import) |
 | `-q` | No progress output |
 | `-v` (before the command) | Log every API call, for a bug report |
 

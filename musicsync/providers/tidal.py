@@ -9,6 +9,7 @@ from itertools import batched
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from ..errors import ApiError
 from ..http import ApiClient
 from ..models import PlaylistInfo, Track, normalize_isrc
 from ..oauth import OAuthClient
@@ -24,7 +25,7 @@ class TidalOAuth(OAuthClient):
     name = "tidal"
     authorize_endpoint = "https://login.tidal.com/authorize"
     token_endpoint = "https://auth.tidal.com/v1/oauth2/token"
-    scopes = ("collection.read", "playlists.read", "playlists.write")
+    scopes = ("collection.read", "collection.write", "playlists.read", "playlists.write")
 
 
 _DURATION = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?")
@@ -167,3 +168,18 @@ class TidalProvider(Provider):
             json=body,
             headers=JSONAPI_BODY,
         )
+
+    def add_favorite_tracks(self, tracks: list[Track]) -> None:
+        body = {"data": [{"id": track_id, "type": "tracks"} for track in tracks if (track_id := self.native_id(track))]}
+        try:
+            self.api.request(
+                "POST",
+                "/userCollectionTracks/me/relationships/items",
+                params={"countryCode": self.country},
+                json=body,
+                headers=JSONAPI_BODY,
+            )
+        except ApiError as exc:
+            if exc.status == 403:
+                raise self._refused("collection") from exc
+            raise

@@ -152,7 +152,7 @@ def cmd_import(args: argparse.Namespace, services: Services) -> int:
     result = import_tracks(
         services.provider(args.service),
         tracks,
-        args.playlist,
+        None if args.to_favorites else args.playlist,
         min_score=args.min_score,
         dry_run=args.dry_run,
         progress=_progress(args.quiet),
@@ -165,14 +165,20 @@ def cmd_import(args: argparse.Namespace, services: Services) -> int:
 def cmd_transfer(args: argparse.Namespace, services: Services) -> int:
     if args.source == args.target:
         raise ProviderError("Source and target are the same service.")
-    if args.to_playlist and args.all:
-        raise ProviderError("--to-playlist cannot be combined with --all.")
+    if args.to_playlist and (args.all or args.sync_favorites):
+        raise ProviderError("--to-playlist cannot be combined with --all or --sync-favorites.")
     source, target = services.provider(args.source), services.provider(args.target)
     progress = _progress(args.quiet)
     misses: list[Miss] = []
-    selected = select_tracks(source, liked=args.liked, playlist=args.playlist, on_skip=_warn, progress=progress)
+    liked = args.liked or args.sync_favorites
+    selected = select_tracks(source, liked=liked, playlist=args.playlist, on_skip=_warn, progress=progress)
     for name, tracks in selected:
-        destination = args.to_playlist or (f"{LIKED} (from {args.source.title()})" if name == LIKED else name)
+        # None: the favourites (liked songs) of the target
+        destination = (
+            None
+            if args.sync_favorites
+            else args.to_playlist or (f"{LIKED} (from {args.source.title()})" if name == LIKED else name)
+        )
         result = import_tracks(
             target, tracks, destination, min_score=args.min_score, dry_run=args.dry_run, progress=progress
         )
@@ -248,12 +254,14 @@ def cmd_doctor(args: argparse.Namespace, services: Services) -> int:
 # --- argument parsing ---------------------------------------------------------------------------------
 
 
-def _add_selection(parser: argparse.ArgumentParser) -> None:
+def _add_selection(parser: argparse.ArgumentParser, *, favorites: bool = False) -> None:
     """--liked, --playlist or --all: which tracks to work on."""
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--liked", action="store_true", help="your liked / saved songs")
     group.add_argument("--playlist", metavar="NAME_OR_ID", help="one playlist, by name or id")
     group.add_argument("--all", action="store_true", help="liked songs and every playlist you can read")
+    if favorites:  # the name spotify_to_tidal uses
+        group.add_argument("--sync-favorites", action="store_true", help="liked songs, to the target's favourites")
 
 
 def _add_matching_options(parser: argparse.ArgumentParser) -> None:
@@ -294,13 +302,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     imp = add("import", cmd_import, "add the tracks of a CSV file to a playlist")
     imp.add_argument("file", help="CSV file (see the README for the format)")
-    imp.add_argument("--playlist", default="Music-Sync import", help="playlist to add to, created if missing")
+    into = imp.add_mutually_exclusive_group()
+    into.add_argument("--playlist", default="Music-Sync import", help="playlist to add to, created if missing")
+    into.add_argument("--to-favorites", action="store_true", help="add to your favourites (liked songs) instead")
     _add_matching_options(imp)
 
     transfer = add("transfer", cmd_transfer, "copy liked songs or playlists from one service to another", service=False)
     transfer.add_argument("source", choices=SERVICES, metavar="SOURCE")
     transfer.add_argument("target", choices=SERVICES, metavar="TARGET")
-    _add_selection(transfer)
+    _add_selection(transfer, favorites=True)
     transfer.add_argument("--to-playlist", metavar="NAME", help="playlist to fill (default: same name as the source)")
     _add_matching_options(transfer)
 

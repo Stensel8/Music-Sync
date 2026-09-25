@@ -5,7 +5,7 @@ import responses
 
 from musicsync.http import ApiClient
 from musicsync.models import Track
-from musicsync.providers.tidal import API, TidalProvider, parse_duration, parse_tracks
+from musicsync.providers.tidal import API, TidalOAuth, TidalProvider, parse_duration, parse_tracks
 
 from .support import ISRC_A, ISRC_B, sent_json, sent_query
 
@@ -159,6 +159,15 @@ def test_add_to_playlist_skips_duplicates_server_side(tidal):
         "meta": {"onDuplicates": "SKIP"},
     }
     assert tidal.add_batch == 20  # what Tidal takes in one request; sync.py sends at most this many
+
+
+@responses.activate
+def test_add_favorite_tracks_posts_to_the_collection(tidal):
+    responses.post(f"{API}/userCollectionTracks/me/relationships/items", status=201)
+    tidal.add_favorite_tracks([Track("T", ids={"tidal": "7"}), Track("No id")])
+    assert sent_json(responses.calls[0]) == {"data": [{"id": "7", "type": "tracks"}]}
+    assert sent_query(responses.calls[0])["countryCode"] == ["NL"]
+    assert "collection.write" in TidalOAuth.scopes and tidal.favorite_batch == 20
 
 
 @responses.activate

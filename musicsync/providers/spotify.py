@@ -26,6 +26,7 @@ class SpotifyOAuth(OAuthClient):
     token_endpoint = "https://accounts.spotify.com/api/token"
     scopes = (
         "user-library-read",
+        "user-library-modify",
         "playlist-read-private",
         "playlist-read-collaborative",
         "playlist-modify-private",
@@ -51,6 +52,7 @@ def parse_track(obj: dict[str, Any] | None) -> Track | None:
 
 class SpotifyProvider(Provider):
     name = "spotify"
+    favorite_batch = 40  # what PUT /me/library takes
 
     def __init__(self, api: ApiClient):
         self.api = api
@@ -133,3 +135,13 @@ class SpotifyProvider(Provider):
     def add_to_playlist(self, playlist_id: str, tracks: list[Track]) -> None:
         uris = [uri for track in tracks if (uri := self.native_id(track))]
         self._request("POST", f"/playlists/{playlist_id}/items", json={"uris": uris})
+
+    def add_favorite_tracks(self, tracks: list[Track]) -> None:
+        uris = [uri for track in tracks if (uri := self.native_id(track))]
+        try:
+            # Since February 2026 one endpoint saves every kind of item, by URI (spotipy does the same).
+            self._request("PUT", "/me/library", params={"uris": ",".join(uris)})
+        except ApiError as exc:
+            if exc.status == 403:
+                raise self._refused("liked songs") from exc
+            raise

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Collection, Iterator, Mapping
 from functools import partial
 
-from ..errors import ApiError
+from ..errors import ApiError, ProviderError
 from ..matching import best_match, rank, searchable, simplify_title
 from ..models import Match, PlaylistInfo, Track
 
@@ -36,6 +36,7 @@ class Provider(ABC):
 
     name: str
     add_batch = 100  # the most tracks one "add to playlist" request takes
+    favorite_batch = 20  # the most tracks one "add to favourites" request takes
 
     @property
     def label(self) -> str:
@@ -73,6 +74,18 @@ class Provider(ABC):
     @abstractmethod
     def add_to_playlist(self, playlist_id: str, tracks: list[Track]) -> None:
         """Add tracks that have an id on this service, at most ``add_batch``, in one request."""
+
+    @abstractmethod
+    def add_favorite_tracks(self, tracks: list[Track]) -> None:
+        """Add tracks that have an id on this service to the favourites (liked songs), at most ``favorite_batch``,
+        in one request."""
+
+    def _refused(self, what: str) -> ProviderError:
+        """A write that the service refused (HTTP 403): a login from before Music-Sync asked to change ``what``."""
+        return ProviderError(
+            f"{self.label} did not let Music-Sync change your {what}. Log in again (music-sync login {self.name}, "
+            "or Log in on the web page) and allow it: older logins did not ask for that."
+        )
 
     def native_id(self, track: Track) -> str | None:
         """This service's id for ``track``, if it has one."""

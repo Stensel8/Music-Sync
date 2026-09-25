@@ -231,8 +231,8 @@ def test_the_account_page_sends_you_to_login_when_the_session_is_gone(tmp_path):
     assert response.status_code == 302 and str(response.location).endswith("/tidal/login")
 
 
-def transfer(client: FlaskClient):
-    return client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON)
+def transfer(client: FlaskClient, **extra):
+    return client.post("/transfer", json={"source": "spotify", "target": "tidal", **extra}, headers=JSON)
 
 
 def export(client: FlaskClient, service: str, playlist: str | None = None):
@@ -308,6 +308,14 @@ def test_import_rejects_empty_and_non_utf8_files(client, body, message):
 
 def test_import_needs_a_file(client):
     assert client.post("/tidal/import", data={}, headers=JSON).status_code == 400
+
+
+def test_transfer_can_go_to_the_favourites(client, services):
+    job = wait_for(client, transfer(client, favorites=True).get_json()["id"])
+    tidal = services.providers["tidal"]
+    assert isinstance(tidal, FakeProvider)
+    assert job["status"] == "done" and job["message"].startswith("Liked Songs: 1 matched")
+    assert tidal.playlists_by_id == {} and [tidal.native_id(t) for t in tidal.liked] == ["1"]
 
 
 def test_transfer_copies_liked_songs_to_the_other_service(client, services):

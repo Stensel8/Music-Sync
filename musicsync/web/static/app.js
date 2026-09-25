@@ -166,6 +166,7 @@ $('import-form')?.addEventListener('submit', (e) => {
   const form = new FormData();
   form.append('file', $('import-file').files[0]);
   form.append('playlist', $('import-playlist').value);
+  if ($('import-favorites').checked) form.append('favorites', '1');
   start(`/${$('import-service').value}/import`, { body: form });
 });
 
@@ -178,6 +179,7 @@ $('transfer-form')?.addEventListener('submit', (e) => {
       target: $('transfer-target').value,
       playlist: $('transfer-playlist').value || null,
       name: $('transfer-name').value,
+      favorites: $('transfer-favorites').checked,
     }),
   );
 });

@@ -53,6 +53,7 @@ class FakeProvider(Provider):
         self.liked = list(liked)
         self.albums: list[Track] = []  # the albums it knows, as Tracks with the album's title
         self.favorite_albums: list[Track] = []
+        self.album_contents: dict[str, list[Track]] = {}  # the tracks of each album, by the album's id
         self.readable = readable  # whether its playlists count as the user's own
         self.playlists_by_id: dict[str, tuple[str, list[Track]]] = {}
         self.descriptions: dict[str, str] = {}  # of the playlists made through create_playlist
@@ -80,7 +81,11 @@ class FakeProvider(Provider):
         return _having(self.catalog, query)
 
     def search_albums(self, query: str) -> list[Track]:
+        self.searches.append(f"album: {query}")
         return _having(self.albums, query)
+
+    def album_tracks(self, album_id: str) -> list[Track]:
+        return self.album_contents.get(album_id, [])
 
     def create_playlist(self, name: str, description: str = "") -> str:
         playlist_id = f"pl{len(self.playlists_by_id) + 1}"

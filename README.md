@@ -130,7 +130,7 @@ client_secret = "..."
 
 ## How tracks are matched
 
-A track that is already in the target playlist is recognised without a lookup, so a second run is quick. Any other track is found by its id on the target service (a CSV exported from it), else by its ISRC, else by searching for title and artist. Each search result gets a score from 0 to 1: half for the title, 0.4 for the artist and 0.1 for the length. From 0.8 on (`--min-score`) it is a match.
+A track that is already in the target playlist is recognised without a lookup, so a second run is quick. Any other track is found by its id on the target service (a CSV exported from it), else by its ISRC, else by searching for title and artist, and as a last resort in the tracklist of its album, as spotify_to_tidal does. Each search result gets a score from 0 to 1: half for the title, 0.4 for the artist and 0.1 for the length. From 0.8 on (`--min-score`) it is a match.
 
 Remaster notes, "feat." parts, spelling and punctuation do not count. Another version does: live, remix, acoustic, instrumental, sped up, "(Taylor's Version)" and the like, and other numbers ("Part 1" is not "Part 2"). A track that is not found says why:
 

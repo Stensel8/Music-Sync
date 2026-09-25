@@ -274,6 +274,25 @@ def test_the_best_hit_of_all_searches_wins_and_a_convincing_one_ends_the_search(
     assert service.asked == ["Song - Remastered Artist", "Song Artist"]  # no need for the looser searches
 
 
+def test_a_track_the_searches_miss_is_found_on_its_album():
+    wanted = Track("One More Time (Radio Edit)", ["Daft Punk"], album="Discovery", duration_ms=320_000)
+    on_album = track("One More Time (Radio Edit)", "Daft Punk", ids={"fake": "t1"}, duration_ms=320_000)
+    service = Scripted({})  # no search finds it
+    service.albums = [track("Discovery", "Daft Punk", ids={"fake": "a1"})]
+    service.album_contents = {"a1": [track("Aerodynamic", "Daft Punk", ids={"fake": "t2"}), on_album]}
+    match = service.find(wanted)
+    assert match is not None and match.track is on_album and match.score >= 0.95
+    assert service.asked == search_queries(wanted)  # every search first,
+    assert service.searches == ["album: Discovery Daft Punk"]  # then the album
+
+
+def test_the_album_is_not_searched_when_a_search_already_convinces():
+    service = FakeProvider(catalog=[track("Song", ids={"fake": "1"})])
+    service.albums = [track("Album", ids={"fake": "a1"})]
+    assert service.find(Track("Song", ["Artist"], album="Album", duration_ms=200_000)) is not None
+    assert not any(query.startswith("album:") for query in service.searches)
+
+
 def test_find_returns_what_came_closest_even_when_it_is_not_good_enough():
     service = Scripted({"Song Artist": [track("Song (Live)", ids={"fake": "1"})]})
     match = service.find(Track("Song", ["Artist"], duration_ms=200_000))

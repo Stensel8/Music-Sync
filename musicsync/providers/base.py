@@ -72,6 +72,10 @@ class Provider(ABC):
         """Free-text search for albums, best first. An album comes as a Track with the album's title."""
 
     @abstractmethod
+    def album_tracks(self, album_id: str) -> list[Track]:
+        """The tracks of one album, ``album_id`` being what ``native_id`` gives for it."""
+
+    @abstractmethod
     def create_playlist(self, name: str, description: str = "") -> str:
         """Create a private playlist and return its id."""
 
@@ -118,16 +122,25 @@ class Provider(ABC):
                 # An ISRC can appear on several releases of one recording; take the closest edition.
                 return Match(max(found, key=partial(rank, track)), 1.0, "isrc")
 
+        searches = [partial(self.search, query) for query in search_queries(track)]
+        if track.album:  # last, as spotify_to_tidal does it: find the album, then the track in its tracklist
+            searches.append(partial(self._on_album, track))
         best: tuple[Track, float] | None = None
-        for query in search_queries(track):
+        for search in searches:
             try:
-                results = self.search(query)
+                results = search()
             except ApiError as exc:
                 if exc.status not in UNLOOKUPABLE:
                     raise
-                continue  # the service could not handle this query; the next one may do
+                continue  # the service could not handle this search; the next one may do
             # The best of this search and the earlier ones; on a tie the earlier, more specific search wins.
             best = best_match(track, [best[0], *results] if best else results, min_score=0)
             if best and best[1] >= CONVINCING:
                 break
         return Match(best[0], best[1], "search") if best and best[1] > 0 else None
+
+    def _on_album(self, track: Track) -> list[Track]:
+        """The tracks of the album ``track`` is on, if that album can be found."""
+        albums = self.search_albums(f"{simplify_title(track.album)} {track.artist}".strip())
+        album = best_match(Track(track.album, track.artists), albums)
+        return self.album_tracks(self.native_id(album[0]) or "") if album else []

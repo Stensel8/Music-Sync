@@ -193,6 +193,14 @@ def test_albums_are_searched_and_added_like_tracks(tidal):
 
 
 @responses.activate
+def test_album_tracks_reads_the_items_then_the_tracks(tidal):
+    responses.get(f"{API}/albums/5/relationships/items", json={"data": [{"id": "111", "type": "tracks"}]})
+    responses.get(f"{API}/tracks", json={"data": [tidal_track("111")], "included": INCLUDED})
+    assert [t.ids for t in tidal.album_tracks("5")] == [{"tidal": "111"}]
+    assert sent_query(responses.calls[1])["filter[id]"] == ["111"]
+
+
+@responses.activate
 def test_an_isrc_lookup_reads_every_page(tidal):
     # One ISRC is often on a single, an album and a compilation: 20 codes can fill more than one page.
     next_page = "/tracks?page%5Bcursor%5D=P2"

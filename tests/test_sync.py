@@ -33,6 +33,9 @@ def test_import_creates_the_playlist_and_reports_everything():
     assert [str(t) for t in result.unmatched] == ["Nobody - Nonexistent"]
     assert (result.duplicates, result.added, result.already_there) == (1, 2, 0)
     assert result.playlist_id is not None and ids_in(service, result.playlist_id) == ["1", "2"]
+    assert (
+        service.descriptions[result.playlist_id] == "Imported with Music-Sync: https://github.com/Stensel8/Music-Sync"
+    )
 
 
 def test_running_it_again_adds_nothing():

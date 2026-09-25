@@ -47,6 +47,7 @@ class FakeProvider(Provider):
         self.liked = list(liked)
         self.readable = readable  # whether its playlists count as the user's own
         self.playlists_by_id: dict[str, tuple[str, list[Track]]] = {}
+        self.descriptions: dict[str, str] = {}  # of the playlists made through create_playlist
         self.isrc_lookups: list[list[str]] = []  # one entry per bulk lookup, to check the batching
         self.add_calls = 0
 
@@ -72,6 +73,7 @@ class FakeProvider(Provider):
     def create_playlist(self, name: str, description: str = "") -> str:
         playlist_id = f"pl{len(self.playlists_by_id) + 1}"
         self.playlists_by_id[playlist_id] = (name, [])
+        self.descriptions[playlist_id] = description
         return playlist_id
 
     def add_to_playlist(self, playlist_id: str, tracks: list[Track]) -> None:

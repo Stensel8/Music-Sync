@@ -104,6 +104,12 @@ Your logins are kept in `tokens.json`, in the same folder. Keep that file privat
 
 ## Usage
 
+
+```bash
+music-sync web              # then open http://127.0.0.1:8888
+```
+
+
 ```bash
 # Spotify or Tidal to CSV
 music-sync export spotify --liked -o liked.csv

@@ -10,6 +10,7 @@ from .models import Match, PlaylistInfo, Track
 from .providers.base import UNLOOKUPABLE, Provider
 
 LIKED = "Liked Songs"  # our name for a service's liked / saved tracks
+DESCRIPTION = "Imported with Music-Sync: https://github.com/Stensel8/Music-Sync"  # of the playlists it creates
 CHUNK = 20  # tracks per bulk ISRC lookup: what Tidal takes in one request
 
 # Reading the source, finding each track on the target, checking what the target playlist already has, adding.
@@ -165,7 +166,7 @@ def import_tracks(
     *,
     min_score: float = 0.8,
     dry_run: bool = False,
-    description: str = "Imported with Music-Sync",
+    description: str = DESCRIPTION,
     progress: Progress | None = None,
 ) -> ImportResult:
     """Add ``tracks`` to the playlist called ``playlist`` (created if missing), skipping what is already in it."""

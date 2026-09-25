@@ -22,9 +22,12 @@ You need Python 3.14 or newer.
 ```bash
 git clone https://github.com/Stensel8/Music-Sync
 cd Music-Sync
-python3 -m venv .venv && . .venv/bin/activate    # Windows: .venv\Scripts\activate
-pip install -e '.[web]'                           # leave out [web] for the command line only
+python3 -m venv .venv
+source .venv/bin/activate            # fish: source .venv/bin/activate.fish
+pip install -e '.[web]'              # leave out [web] for the command line only
 ```
+
+On Windows, activate with `.venv\Scripts\Activate.ps1` (PowerShell).
 
 ## Setup
 
@@ -71,6 +74,8 @@ Music-Sync creates the settings file for you the first time you run any command,
 - Windows: `%APPDATA%\music-sync\config.toml`
 
 `.config` is a hidden folder, so your editor's file tree does not show it. Open the file by its path.
+
+![Config file](image.png)
 
 Fill in what you copied:
 

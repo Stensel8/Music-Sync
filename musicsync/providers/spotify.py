@@ -2,7 +2,6 @@
 
 from collections.abc import Collection, Iterator
 from functools import cached_property
-from itertools import batched
 from typing import Any
 
 from ..errors import ApiError, ProviderError
@@ -13,7 +12,6 @@ from .base import Provider
 
 API = "https://api.spotify.com/v1"
 PAGE_SIZE = 50
-ADD_BATCH = 100  # tracks per "add to playlist" request
 
 # Since February 2026 Spotify refuses apps whose owner has no Premium subscription, with a plain 403.
 PREMIUM_REQUIRED = (
@@ -53,7 +51,6 @@ def parse_track(obj: dict[str, Any] | None) -> Track | None:
 
 class SpotifyProvider(Provider):
     name = "spotify"
-    add_batch = ADD_BATCH
 
     def __init__(self, api: ApiClient):
         self.api = api
@@ -135,5 +132,4 @@ class SpotifyProvider(Provider):
 
     def add_to_playlist(self, playlist_id: str, tracks: list[Track]) -> None:
         uris = [uri for track in tracks if (uri := self.native_id(track))]
-        for batch in batched(uris, ADD_BATCH, strict=False):
-            self._request("POST", f"/playlists/{playlist_id}/items", json={"uris": list(batch)})
+        self._request("POST", f"/playlists/{playlist_id}/items", json={"uris": uris})

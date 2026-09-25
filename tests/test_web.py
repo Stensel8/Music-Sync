@@ -231,6 +231,10 @@ def test_the_account_page_sends_you_to_login_when_the_session_is_gone(tmp_path):
     assert response.status_code == 302 and str(response.location).endswith("/tidal/login")
 
 
+def transfer(client: FlaskClient):
+    return client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON)
+
+
 def export(client: FlaskClient, service: str, playlist: str | None = None):
     return client.post(f"/{service}/export", json={"playlist": playlist}, headers=JSON)
 
@@ -260,7 +264,7 @@ def test_export_runs_as_a_job_and_then_downloads_the_csv(client, services):
 
 
 def test_only_an_export_has_a_download(client):
-    job_id = client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON).get_json()["id"]
+    job_id = transfer(client).get_json()["id"]
     wait_for(client, job_id)
     assert client.get(f"/jobs/{job_id}/download").status_code == 404
 
@@ -283,7 +287,7 @@ def test_import_runs_as_a_job_and_reports_what_was_not_found(client, services):
     job_id = response.get_json()["id"]
     job = wait_for(client, job_id)
     assert job["status"] == "done" and job["message"] == "Mix: 1 matched, 1 not found; added 1"
-    assert job["unmatched"] == [{"track": "Nobody - Nothing", "reason": "not on Tidal", "closest": None}]
+    assert job["unmatched"] == [{"track": "Nobody - Nothing", "why": "not on Tidal"}]
     assert (job["found"], job["not_found"], job["phase"], job["done"], job["total"]) == (1, 1, "add", 1, 1)
     assert job["phases"] == ["check", "match", "add"] and job["eta"] is None
 
@@ -307,7 +311,7 @@ def test_import_needs_a_file(client):
 
 
 def test_transfer_copies_liked_songs_to_the_other_service(client, services):
-    response = client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON)
+    response = transfer(client)
     job = wait_for(client, response.get_json()["id"])
     assert job["status"] == "done" and "Liked Songs (from Spotify): 1 matched, 1 not found" in job["message"]
     assert job["title"] == "Transfer from Spotify to Tidal" and job["phases"] == ["read", "check", "match", "add"]
@@ -329,7 +333,7 @@ def test_a_failing_job_reports_the_reason(tmp_path):
 
     client = create_app(Broken(tmp_path), secret_key="k").test_client()
     # The providers are built while the request is handled, so this fails the request itself.
-    response = client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON)
+    response = transfer(client)
     assert response.status_code == 502 and "Forbidden by the service" in response.get_json()["message"]
 
 
@@ -341,9 +345,7 @@ def test_an_error_inside_a_job_is_reported_through_the_job(services, client):
         raise ApiError(500, "The service fell over")
 
     spotify.liked_tracks = explode  # type: ignore[method-assign]
-    job = wait_for(
-        client, client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON).get_json()["id"]
-    )
+    job = wait_for(client, transfer(client).get_json()["id"])
     assert job["status"] == "error" and "fell over" in job["message"]
 
 
@@ -355,9 +357,7 @@ def test_a_bug_inside_a_job_does_not_leak_details(services, client):
         raise RuntimeError("secret internal detail")
 
     spotify.liked_tracks = crash  # type: ignore[method-assign]
-    job = wait_for(
-        client, client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON).get_json()["id"]
-    )
+    job = wait_for(client, transfer(client).get_json()["id"])
     assert job["status"] == "error" and "secret internal detail" not in job["message"]
 
 
@@ -365,11 +365,9 @@ def test_a_track_not_found_comes_with_what_came_closest(client, services):
     spotify = services.providers["spotify"]
     assert isinstance(spotify, FakeProvider)
     spotify.liked = [Track("Song B (Live)", ["Artist B"])]  # Tidal only has the studio version
-    job = wait_for(
-        client, client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON).get_json()["id"]
-    )
+    job = wait_for(client, transfer(client).get_json()["id"])
     assert job["unmatched"] == [
-        {"track": "Artist B - Song B (Live)", "reason": "only another version", "closest": "Artist B - Song B"}
+        {"track": "Artist B - Song B (Live)", "why": "only another version; closest: Artist B - Song B"}
     ]
 
 
@@ -380,12 +378,12 @@ def test_a_running_job_says_what_it_is_doing():
     assert (job.phase, job.done, job.total) == ("read", 10, None)
     for done, title in enumerate("AB", start=1):
         track = Track(title, ["X"])
-        job.progress(Step("match", "Finding the tracks on Tidal", done, 3, track, None, Miss(track, "not on Tidal")))
+        job.progress(Step("match", "Finding the tracks on Tidal", done, 3, track, 0, Miss(track, "not on Tidal")))
     shown = job.to_json()
     assert (shown["phase"], shown["done"], shown["total"]) == ("match", 2, 3)
     assert shown["text"] == "Finding the tracks on Tidal"
     assert (shown["found"], shown["not_found"], shown["current"]) == (0, 2, "X - B")
-    assert shown["status"] == "running" and shown["unmatched_count"] == 2 and not shown["download"]
+    assert shown["status"] == "running" and not shown["download"]
 
 
 def test_unknown_jobs_are_a_404(client):

@@ -38,7 +38,7 @@ class Job:
     found: int = 0
     misses: list[Miss] = field(default_factory=list)  # the tracks not found so far, and why
     message: str = ""  # the summary, or what went wrong
-    download: tuple[str, str] | None = None  # an export's file name and CSV text, once it is done
+    download: tuple[str, list[Track]] | None = None  # an export's file name and tracks, once it is done
     started: float = field(default_factory=time.monotonic)
     phase_started: float = field(default_factory=time.monotonic)
     finished: float | None = None
@@ -49,22 +49,15 @@ class Job:
             self.phase, self.phase_started, self.current = step.phase, time.monotonic(), ""
         self.text, self.done, self.total = step.text, step.done, step.total
         if step.phase == "match" and step.track:
-            self.current = str(step.track)
-            if step.match:
-                self.found += 1
+            self.current, self.found = str(step.track), step.found
             if step.miss:
                 self.misses.append(step.miss)
-
-    @property
-    def unmatched(self) -> list[Track]:
-        return [miss.track for miss in self.misses]
 
     def to_json(self) -> dict[str, Any]:
         """Everything the page shows about the job."""
         now = self.finished or time.monotonic()
         eta = remaining(self.done, self.total, now - self.phase_started) if self.status == "running" else None
         return {
-            "kind": self.kind,
             "title": self.title,
             "status": self.status,
             "phases": PHASES[self.kind],
@@ -78,15 +71,7 @@ class Job:
             "elapsed": round(now - self.started, 1),
             "eta": None if eta is None else round(eta),
             "message": self.message,
-            "unmatched": [
-                {
-                    "track": str(miss.track),
-                    "reason": miss.reason,
-                    "closest": str(miss.closest.track) if miss.closest else None,
-                }
-                for miss in self.misses[:SHOWN_MISSES]
-            ],
-            "unmatched_count": len(self.misses),
+            "unmatched": [{"track": str(miss.track), "why": miss.why} for miss in self.misses[:SHOWN_MISSES]],
             "download": self.download is not None,
         }
 
@@ -112,8 +97,7 @@ class JobManager:
     @staticmethod
     def _run(job: Job, work: Callable[[Job], str]) -> None:
         try:
-            job.message = work(job)
-            status = "done"
+            job.message, status = work(job), "done"
         except MusicSyncError as exc:
             job.message, status = str(exc), "error"
         except Exception:

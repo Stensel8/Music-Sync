@@ -11,6 +11,7 @@ from werkzeug.wrappers import Response as WerkzeugResponse
 from ..config import DEVELOPER_DASHBOARDS, SERVICES, config_path
 from ..csvio import parse_csv, slug, write_csv
 from ..errors import CsvError, NotLoggedIn, ProviderError
+from ..models import Track
 from ..oauth import pkce_pair
 from ..services import Services
 from ..sync import LIKED, import_tracks, select_tracks
@@ -32,26 +33,16 @@ def _jobs() -> JobManager:
 def _accounts() -> list[dict]:
     """What the templates need to know about each service."""
     services = _services()
-    accounts = []
-    for name in SERVICES:
-        configured = services.settings.is_configured(name)
-        accounts.append(
-            {
-                "name": name,
-                "label": name.title(),
-                "configured": configured,
-                # A login made before the client ID was taken out of the settings is of no use any more.
-                "connected": configured and services.store.load(name) is not None,
-            }
-        )
-    return accounts
-
-
-def _to_setup(service: str) -> WerkzeugResponse | None:
-    """Where to go instead when ``service`` has no client ID yet: the page that says how to get one."""
-    if _services().settings.is_configured(service):
-        return None
-    return redirect(url_for("service.setup", service=service))
+    return [
+        {
+            "name": name,
+            "label": name.title(),
+            "configured": (configured := services.settings.is_configured(name)),
+            # A login made before the client ID was taken out of the settings is of no use any more.
+            "connected": configured and services.store.load(name) is not None,
+        }
+        for name in SERVICES
+    ]
 
 
 def _start(kind: str, title: str, work: Callable[[Job], str]) -> tuple[Response, int]:
@@ -65,13 +56,15 @@ def _job(job_id: str) -> Job:
     return job
 
 
-def _attachment(text: str, name: str) -> Response:
-    """A CSV the browser saves as ``name``.csv."""
+def _attachment(name: str, tracks: list[Track]) -> Response:
+    """``tracks`` as a CSV the browser saves as ``name``.csv."""
+    out = io.StringIO()
+    write_csv(out, tracks)
     # filename* carries the real name (it may have accents); plain filename is the ASCII fallback for old
     # browsers, as a header cannot carry every character.
     fallback = slug(name).encode("ascii", "ignore").decode().strip() or "export"
     disposition = f"attachment; filename=\"{fallback}.csv\"; filename*=UTF-8''{quote(slug(name))}.csv"
-    return Response(text, mimetype="text/csv", headers={"Content-Disposition": disposition})
+    return Response(out.getvalue(), mimetype="text/csv", headers={"Content-Disposition": disposition})
 
 
 # --- pages and cross-service actions ---------------------------------------------------------------
@@ -114,9 +107,7 @@ def job_status(job_id: str) -> Response:
 
 @pages.get("/jobs/<job_id>/unmatched.csv")
 def job_unmatched(job_id: str) -> Response:
-    out = io.StringIO()
-    write_csv(out, _job(job_id).unmatched)
-    return _attachment(out.getvalue(), "unmatched")
+    return _attachment("unmatched", [miss.track for miss in _job(job_id).misses])
 
 
 @pages.get("/jobs/<job_id>/download")
@@ -124,8 +115,7 @@ def job_download(job_id: str) -> Response:
     """The CSV an export made."""
     if (download := _job(job_id).download) is None:
         abort(404, "This job has no file (yet).")
-    name, text = download
-    return _attachment(text, name)
+    return _attachment(*download)
 
 
 # --- one service: login, account, export, import --------------------------------------------------
@@ -152,8 +142,8 @@ def setup(service: str) -> str | WerkzeugResponse:
 
 @service_pages.get("/login")
 def login(service: str) -> WerkzeugResponse:
-    if elsewhere := _to_setup(service):
-        return elsewhere
+    if not _services().settings.is_configured(service):  # nothing to log in with yet: say how to get it
+        return redirect(url_for("service.setup", service=service))
     verifier, challenge = pkce_pair()
     state = secrets.token_urlsafe(16)
     session[f"{service}_oauth"] = {"verifier": verifier, "state": state}  # needed again on the way back
@@ -176,8 +166,8 @@ def callback(service: str) -> WerkzeugResponse:
 
 @service_pages.get("/account")
 def account(service: str) -> str | WerkzeugResponse:
-    if elsewhere := _to_setup(service):
-        return elsewhere
+    if not _services().settings.is_configured(service):
+        return redirect(url_for("service.setup", service=service))
     try:
         playlists = _services().provider(service).playlists()
     except NotLoggedIn:
@@ -209,9 +199,7 @@ def export(service: str) -> tuple[Response, int]:
 
     def work(job: Job) -> str:
         ((name, tracks),) = select_tracks(provider, liked=not playlist, playlist=playlist, progress=job.progress)
-        out = io.StringIO()
-        write_csv(out, tracks)
-        job.download = (name, out.getvalue())
+        job.download = (name, tracks)
         return f"{name}: {len(tracks)} tracks exported."
 
     return _start("export", f"Export from {service.title()}", work)

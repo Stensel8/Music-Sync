@@ -24,11 +24,6 @@ def _warn(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def _bar(done: int, total: int, width: int = 20) -> str:
-    filled = round(width * done / total) if total else width
-    return f"[{'#' * filled}{'-' * (width - filled)}]"
-
-
 def _seconds(seconds: float) -> str:
     """A rough duration for people: "40 s", "3 min"."""
     return f"{max(round(seconds / 10) * 10, 10)} s" if seconds < 60 else f"{round(seconds / 60)} min"
@@ -41,41 +36,31 @@ class _ProgressLine:
     def __init__(self) -> None:
         self.tty = sys.stderr.isatty()
         self.text = ""  # the step the current line is about
-        self.open = False  # a line has been drawn but not ended
-        self.complete = False  # the last step reported was complete
-        self.found = self.missing = 0
+        self.complete = True  # the last step reported was complete, so no line is left open
         self.started = time.monotonic()
 
     def __call__(self, step: Step) -> None:
         if step.text != self.text or self.complete:  # a new step, or the same kind of step for the next list
-            self.end()
-            self.text, self.found, self.missing, self.started = step.text, 0, 0, time.monotonic()
-        if step.phase == "match":
-            self.found += step.match is not None
-            self.missing += step.match is None
+            if self.tty and not self.complete:
+                print(file=sys.stderr, flush=True)  # end the line the previous step left open
+            self.text, self.started = step.text, time.monotonic()
         self.complete = step.total is not None and step.done >= step.total
         if self.tty:
             width = max(shutil.get_terminal_size().columns - 1, 40)
-            print(f"\r{self.line(step)[:width]:<{width}}", end="", file=sys.stderr, flush=True)
-            self.open = True
-            if self.complete:
-                self.end()
+            end = "\n" if self.complete else ""
+            print(f"\r{self.line(step)[:width]:<{width}}", end=end, file=sys.stderr, flush=True)
         elif self.complete or (step.done and step.done % 50 == 0):
             print(self.line(step, current=False), file=sys.stderr, flush=True)
-
-    def end(self) -> None:
-        if self.open:
-            print(file=sys.stderr, flush=True)
-            self.open = False
 
     def line(self, step: Step, *, current: bool = True) -> str:
         """ "Finding the tracks on Tidal  [#####---]  45/300  40 found, 5 not found  1 min left  Artist - Title" """
         if step.total is None:
             parts = [step.text, f"{step.done} so far"]
         else:
-            parts = [step.text, _bar(step.done, step.total), f"{step.done}/{step.total}"]
+            filled = round(20 * step.done / step.total) if step.total else 20
+            parts = [step.text, f"[{'#' * filled}{'-' * (20 - filled)}]", f"{step.done}/{step.total}"]
         if step.phase == "match":
-            parts.append(f"{self.found} found, {self.missing} not found")
+            parts.append(f"{step.found} found, {step.done - step.found} not found")
         if (left := remaining(step.done, step.total, time.monotonic() - self.started)) is not None:
             parts.append(f"{_seconds(left)} left")
         if current and step.track and not self.complete:
@@ -97,8 +82,7 @@ def _report_unmatched(misses: list[Miss], path: str | None) -> None:
         return
     print("\nNot found:")
     for miss in misses[:10]:
-        closest = f"; closest: {miss.closest.track}" if miss.closest else ""
-        print(f"  {miss.track}: {miss.reason}{closest}")
+        print(f"  {miss.track}: {miss.why}")
     if len(misses) > 10:
         print(f"  ... and {len(misses) - 10} more (use --unmatched FILE to save them all)")
 

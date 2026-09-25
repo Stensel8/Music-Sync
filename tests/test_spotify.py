@@ -116,11 +116,12 @@ def test_create_playlist_is_private_and_uses_me_playlists(spotify):
 
 
 @responses.activate
-def test_add_to_playlist_batches_by_100_and_skips_tracks_without_an_id(spotify):
+def test_add_to_playlist_sends_the_uris_and_skips_tracks_without_an_id(spotify):
     responses.post(f"{API}/playlists/p1/items", json={"snapshot_id": "s"})
-    tracks = [Track(f"T{i}", ids={"spotify": f"spotify:track:{i}"}) for i in range(250)] + [Track("No id")]
+    tracks = [Track(f"T{i}", ids={"spotify": f"spotify:track:{i}"}) for i in range(3)] + [Track("No id")]
     spotify.add_to_playlist("p1", tracks)
-    assert [len(sent_json(call)["uris"]) for call in responses.calls] == [100, 100, 50]
+    assert sent_json(responses.calls[0]) == {"uris": ["spotify:track:0", "spotify:track:1", "spotify:track:2"]}
+    assert spotify.add_batch == 100  # sync.py sends at most this many per call
 
 
 @responses.activate

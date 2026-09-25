@@ -151,14 +151,14 @@ def test_create_playlist_posts_a_json_api_body(tidal):
 
 
 @responses.activate
-def test_add_to_playlist_skips_duplicates_server_side_in_batches_of_twenty(tidal):
+def test_add_to_playlist_skips_duplicates_server_side(tidal):
     responses.post(f"{API}/playlists/uuid-9/relationships/items", status=201)
-    tracks = [Track(f"T{i}", ids={"tidal": str(i)}) for i in range(45)] + [Track("No id")]
-    tidal.add_to_playlist("uuid-9", tracks)
-    bodies = [sent_json(call) for call in responses.calls]
-    assert [len(body["data"]) for body in bodies] == [20, 20, 5]
-    assert all(body["meta"] == {"onDuplicates": "SKIP"} for body in bodies)
-    assert bodies[0]["data"][0] == {"id": "0", "type": "tracks"}
+    tidal.add_to_playlist("uuid-9", [Track("T0", ids={"tidal": "0"}), Track("T1", ids={"tidal": "1"}), Track("No id")])
+    assert sent_json(responses.calls[0]) == {
+        "data": [{"id": "0", "type": "tracks"}, {"id": "1", "type": "tracks"}],
+        "meta": {"onDuplicates": "SKIP"},
+    }
+    assert tidal.add_batch == 20  # what Tidal takes in one request; sync.py sends at most this many
 
 
 @responses.activate

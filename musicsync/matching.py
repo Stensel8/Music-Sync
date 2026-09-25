@@ -3,6 +3,7 @@
 import re
 import unicodedata
 from difflib import SequenceMatcher
+from functools import lru_cache
 
 from .models import Track
 
@@ -54,6 +55,12 @@ MIN_ARTIST_SCORE = 0.7
 SAME_SONG = 0.6
 
 
+# The text functions below are pure, and each wanted track is compared with many candidates: cache them.
+# Bounded, as the web interface runs for a long time.
+_cached = lru_cache(maxsize=4096)
+
+
+@_cached
 def _fold(text: str) -> str:
     """Lowercase and strip accents, so "Björk" equals "bjork". Curly apostrophes become straight ones."""
     decomposed = unicodedata.normalize("NFKD", text.translate(_APOSTROPHES))
@@ -67,6 +74,7 @@ def _words(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", text).split())
 
 
+@_cached
 def _comparable(text: str) -> str:
     """Folded words without remaster noise, with the usual abbreviations written out."""
     words = _words(_NOISE.sub(" ", _fold(text))).split()
@@ -86,17 +94,20 @@ def simplify_title(title: str) -> str:
     return " ".join(_FEATURING.sub("", simple).split()) or " ".join(title.split())
 
 
+@_cached
 def normalize(title: str) -> str:
     """The comparable form of the main part of a title."""
     return _comparable(simplify_title(title))
 
 
+@_cached
 def _full(title: str) -> str:
     """The comparable form of the whole title: bracketed parts kept, only "feat." parts left out.
     It catches titles whose main part is in brackets, like "(I Can't Get No) Satisfaction"."""
     return _comparable(_FEATURING.sub("", _BRACKETED_FEATURING.sub(" ", title)))
 
 
+@_cached
 def similarity(a: str, b: str) -> float:
     """How alike two comparable strings are, from 0 to 1. Spaces and word order count for little."""
     if a.replace(" ", "") == b.replace(" ", ""):
@@ -115,11 +126,13 @@ def _version(title: str) -> str:
     return " ".join(parts)
 
 
+@_cached
 def _tags(title: str) -> frozenset[str]:
     version = _fold(_version(title))
     return frozenset(tag for tag, pattern in _TAGS.items() if pattern.search(version))
 
 
+@_cached
 def _numbers(title: str) -> frozenset[int]:
     return frozenset(int(number) for number in re.findall(r"\d+", _full(title)))
 
@@ -132,11 +145,7 @@ def _title_similarity(wanted: str, candidate: str) -> float:
     return alike if ours <= theirs or theirs <= ours else alike * 0.5
 
 
-def _title_score(wanted: str, candidate: str) -> float:
-    title = _title_similarity(wanted, candidate)
-    return title if _tags(wanted) == _tags(candidate) else title * 0.5
-
-
+@_cached
 def _artist_key(name: str) -> str:
     key = _words(name.replace("$", "s"))  # Ke$ha, A$AP Rocky
     return key.removeprefix("the ")
@@ -171,7 +180,9 @@ def _duration_score(a: int | None, b: int | None) -> float:
 
 def score(wanted: Track, candidate: Track) -> float:
     """How well ``candidate`` matches ``wanted``, from 0 to 1."""
-    title = _title_score(wanted.title, candidate.title)
+    title = _title_similarity(wanted.title, candidate.title)
+    if _tags(wanted.title) != _tags(candidate.title):  # another version: live, remix, ...
+        title *= 0.5
     duration = _duration_score(wanted.duration_ms, candidate.duration_ms)
     if not wanted.artists or not candidate.artists:
         # Nothing to compare the artist with (a CSV of titles only): judge by the title and the length.

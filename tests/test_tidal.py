@@ -158,7 +158,7 @@ def test_add_to_playlist_skips_duplicates_server_side(tidal):
         "data": [{"id": "0", "type": "tracks"}, {"id": "1", "type": "tracks"}],
         "meta": {"onDuplicates": "SKIP"},
     }
-    assert tidal.add_batch == 20  # what Tidal takes in one request; sync.py sends at most this many
+    assert tidal.add_batch == 50  # what Tidal takes in one request; sync.py sends at most this many
 
 
 @responses.activate
@@ -167,7 +167,7 @@ def test_add_favorite_tracks_posts_to_the_collection(tidal):
     tidal.add_favorite_tracks([Track("T", ids={"tidal": "7"}), Track("No id")])
     assert sent_json(responses.calls[0]) == {"data": [{"id": "7", "type": "tracks"}]}
     assert sent_query(responses.calls[0])["countryCode"] == ["NL"]
-    assert "collection.write" in TidalOAuth.scopes and tidal.favorite_batch == 20
+    assert "collection.write" in TidalOAuth.scopes and tidal.favorite_batch == 50
 
 
 @responses.activate

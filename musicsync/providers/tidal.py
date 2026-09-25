@@ -18,7 +18,7 @@ from .base import Provider
 API = "https://openapi.tidal.com/v2"
 JSONAPI = {"Accept": "application/vnd.api+json"}
 JSONAPI_BODY = {**JSONAPI, "Content-Type": "application/vnd.api+json"}
-BATCH = 20  # Tidal accepts at most 20 ids (or ISRCs) per filter, and 20 items per playlist request
+BATCH = 20  # Tidal accepts at most 20 ids (or ISRCs) per filter
 
 
 class TidalOAuth(OAuthClient):
@@ -82,7 +82,7 @@ def _next_cursor(doc: dict[str, Any]) -> str | None:
 
 class TidalProvider(Provider):
     name = "tidal"
-    add_batch = BATCH
+    add_batch = favorite_batch = 50  # items per add request, to a playlist or the collection
 
     def __init__(self, api: ApiClient, catalog: ApiClient | None = None, country: str = "US"):
         self.api = api  # the user's own token

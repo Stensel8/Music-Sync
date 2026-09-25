@@ -303,7 +303,7 @@ def test_import_can_add_albums(client, services):
     tidal.albums = [track("Discovery", "Daft Punk", ids={"tidal": "5"})]
     response = client.post(
         "/tidal/import",
-        data={"file": (io.BytesIO(b"Daft Punk,Discovery\n"), "albums.csv"), "albums": "1"},
+        data={"file": (io.BytesIO(b"Daft Punk,Discovery\n"), "albums.csv"), "contains": "albums"},
         headers=JSON,
         content_type="multipart/form-data",
     )
@@ -326,7 +326,7 @@ def test_import_needs_a_file(client):
 
 
 def test_transfer_can_go_to_the_favourites(client, services):
-    job = wait_for(client, transfer(client, favorites=True).get_json()["id"])
+    job = wait_for(client, transfer(client, into="favorites").get_json()["id"])
     tidal = services.providers["tidal"]
     assert isinstance(tidal, FakeProvider)
     assert job["status"] == "done" and job["message"].startswith("Liked Songs: 1 matched")

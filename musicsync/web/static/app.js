@@ -158,31 +158,19 @@ $('transfer-source')?.addEventListener('change', (e) => fillPlaylists(e.target.v
 
 $('export-form')?.addEventListener('submit', (e) => {
   e.preventDefault();
-  exportFrom($('export-service').value, $('export-playlist').value);
+  const form = new FormData(e.target);
+  exportFrom(form.get('service'), form.get('playlist'));
 });
 
 $('import-form')?.addEventListener('submit', (e) => {
   e.preventDefault();
-  const form = new FormData();
-  form.append('file', $('import-file').files[0]);
-  form.append('playlist', $('import-playlist').value);
-  if ($('import-favorites').checked) form.append('favorites', '1');
-  if ($('import-albums').checked) form.append('albums', '1');
-  start(`/${$('import-service').value}/import`, { body: form });
+  const form = new FormData(e.target);
+  start(`/${form.get('service')}/import`, { body: form });
 });
 
 $('transfer-form')?.addEventListener('submit', (e) => {
   e.preventDefault();
-  start(
-    '/transfer',
-    postJson({
-      source: $('transfer-source').value,
-      target: $('transfer-target').value,
-      playlist: $('transfer-playlist').value || null,
-      name: $('transfer-name').value,
-      favorites: $('transfer-favorites').checked,
-    }),
-  );
+  start('/transfer', postJson(Object.fromEntries(new FormData(e.target))));
 });
 
 // The setup page: copy the redirect URI or the path of the settings file with one click.

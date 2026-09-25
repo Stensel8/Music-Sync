@@ -43,17 +43,14 @@ function show(text, { error = false } = {}) {
   $('job-text').classList.toggle('error', error);
 }
 
-// One track that was not found, with what came closest. textContent, never innerHTML: track titles come
-// from other people's playlists.
-function miss({ track, closest, score }) {
+// One track that was not found, why, and what came closest. textContent, never innerHTML: track titles
+// come from other people's playlists.
+function miss({ track, reason, closest }) {
   const item = document.createElement('li');
-  item.textContent = track;
-  if (closest) {
-    const hint = document.createElement('span');
-    hint.className = 'muted';
-    hint.textContent = ` (closest: ${closest}, ${Math.round(score * 100)}%)`;
-    item.append(hint);
-  }
+  const why = document.createElement('span');
+  why.className = 'muted';
+  why.textContent = ` — ${reason}${closest ? `; closest: ${closest}` : ''}`;
+  item.append(track, why);
   return item;
 }
 

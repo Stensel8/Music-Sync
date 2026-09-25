@@ -9,7 +9,7 @@ Move liked songs and playlists between Spotify, Tidal and CSV files. Use it from
 | **CSV** | | `import` | `import` |
 
 - Tracks are matched by ISRC when there is one, otherwise by title, artist and length. A live version is never taken for the studio version. See [How tracks are matched](#how-tracks-are-matched).
-- Tracks that cannot be found are listed with the closest candidate and its score, and can be saved to a CSV file.
+- Tracks that cannot be found are listed with the reason, and can be saved to a CSV file.
 - Running a command twice does not add tracks twice.
 - `--dry-run` looks everything up and changes nothing.
 
@@ -124,7 +124,7 @@ music-sync status                   # what is set up and logged in
 
 While it works, Music-Sync shows each step on one line: reading the source, finding the tracks (with how many were found so far and the time left), checking what the playlist already has, and adding. `-q` turns that off.
 
-`--min-score 0.8` sets how sure a text match must be. Lower it to accept doubtful matches, raise it to be stricter. The list of tracks that were not found shows the closest candidate and its score, so you can see what a lower score would let in. Put `-v` before the command (`music-sync -v transfer ...`) to log every API call. That helps in a bug report.
+`--min-score 0.8` sets how sure a text match must be. Lower it to accept doubtful matches, raise it to be stricter. The list of tracks that were not found says why for each one, and shows the closest candidate when there is a real one, so you can see what a lower score would let in. Put `-v` before the command (`music-sync -v transfer ...`) to log every API call. That helps in a bug report.
 
 ## CSV format
 
@@ -166,7 +166,16 @@ Each search result gets a score from 0 to 1: half for the title, 0.4 for the art
 - artists written together or apart ("Macklemore & Ryan Lewis" or "Macklemore" and "Ryan Lewis"), "The", accents, "Ke$ha"
 - word order, and titles whose main part is in brackets: "(I Can't Get No) Satisfaction"
 
-A different artist scores 0. Another version halves the title score, so it stays below 0.8: live, remix, acoustic, instrumental, a cappella, demo, karaoke, cover, radio edit, extended, sped up, slowed and re-recordings like "(Taylor's Version)". Among equal scores the closest full title wins ("Song (A Remix)" over "Song (B Remix)"), then the same album. A CSV with titles only is matched on title and length.
+A different artist scores 0; a name that only shares some letters ("Roy Blair" for "Radio Blazers") counts as different. Another version halves the title score, so it stays below 0.8: live, remix, acoustic, instrumental, a cappella, demo, karaoke, cover, radio edit, extended, sped up, slowed and re-recordings like "(Taylor's Version)". So do other numbers in the title ("Part 1" and "Part 2"). Among equal scores the closest full title wins ("Song (A Remix)" over "Song (B Remix)"), then the same album. A CSV with titles only is matched on title and length.
+
+A track that is not found gets one of these reasons:
+
+| Reason | What it means |
+|--------|---------------|
+| not on Tidal | No search result by this artist. The track is probably not in the catalogue of your country. |
+| only other songs on Tidal | The artist is there, but not this song. |
+| only another version | Only a live version, remix and the like; it is shown as "closest". |
+| score too low for a match (0.75, needs 0.80) | Close, but not sure enough, often because the length differs. `--min-score` decides. |
 
 ## Good to know
 

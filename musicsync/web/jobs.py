@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..errors import MusicSyncError
-from ..models import Match, Track
-from ..sync import Phase, Step, remaining
+from ..models import Track
+from ..sync import Miss, Phase, Step, remaining
 
 log = logging.getLogger(__name__)
 
@@ -36,8 +36,7 @@ class Job:
     total: int | None = None  # None while it is not known
     current: str = ""  # the track being looked up
     found: int = 0
-    # The tracks not found so far, each with the candidate that came closest, if there was one.
-    misses: list[tuple[Track, Match | None]] = field(default_factory=list)
+    misses: list[Miss] = field(default_factory=list)  # the tracks not found so far, and why
     message: str = ""  # the summary, or what went wrong
     download: tuple[str, str] | None = None  # an export's file name and CSV text, once it is done
     started: float = field(default_factory=time.monotonic)
@@ -53,12 +52,12 @@ class Job:
             self.current = str(step.track)
             if step.match:
                 self.found += 1
-            else:
-                self.misses.append((step.track, step.closest))
+            if step.miss:
+                self.misses.append(step.miss)
 
     @property
     def unmatched(self) -> list[Track]:
-        return [track for track, _ in self.misses]
+        return [miss.track for miss in self.misses]
 
     def to_json(self) -> dict[str, Any]:
         """Everything the page shows about the job."""
@@ -81,11 +80,11 @@ class Job:
             "message": self.message,
             "unmatched": [
                 {
-                    "track": str(track),
-                    "closest": str(closest.track) if closest else None,
-                    "score": closest.score if closest else None,
+                    "track": str(miss.track),
+                    "reason": miss.reason,
+                    "closest": str(miss.closest.track) if miss.closest else None,
                 }
-                for track, closest in self.misses[:SHOWN_MISSES]
+                for miss in self.misses[:SHOWN_MISSES]
             ],
             "unmatched_count": len(self.misses),
             "download": self.download is not None,

@@ -87,10 +87,10 @@ def test_one_track_that_cannot_be_looked_up_does_not_stop_the_run():
                 raise ApiError(400, "bad query")
             return super().search(query)
 
-    matches, unmatched, _ = resolve_tracks(
+    matches, misses = resolve_tracks(
         Flaky(catalog=CATALOG), [Track("Broken", ["X"]), Track("Song B", ["Artist B"], duration_ms=180_000)]
     )
-    assert len(matches) == 1 and len(unmatched) == 1
+    assert len(matches) == 1 and [miss.track.title for miss in misses] == ["Broken"]
 
 
 @pytest.mark.parametrize("error", [QuotaExceeded(429, "quota"), ApiError(500, "boom")])
@@ -118,11 +118,30 @@ def test_progress_is_reported_for_every_track():
 def test_a_track_that_came_close_is_reported_with_its_closest_candidate():
     near = Track("Song B (Live)", ["Artist B"], duration_ms=180_000)  # only the studio version is there
     steps: list[Step] = []
-    matches, unmatched, near_misses = resolve_tracks(FakeProvider(catalog=CATALOG), [near], progress=steps.append)
-    assert matches == [] and unmatched == [near]
-    ((track, closest),) = near_misses
-    assert track is near and closest.track.title == "Song B" and 0 < closest.score < 0.8
-    assert steps[0].match is None and steps[0].closest == closest
+    matches, (miss,) = resolve_tracks(FakeProvider(catalog=CATALOG), [near], progress=steps.append)
+    assert matches == [] and miss.track is near and miss.reason == "only another version"
+    assert miss.closest is not None and miss.closest.track.title == "Song B"
+    assert steps[0].match is None and steps[0].miss == miss
+
+
+@pytest.mark.parametrize(
+    ("wanted", "reason", "closest"),
+    [
+        (Track("Nothing Like It", ["Nobody"]), "not on Fake", None),
+        # Same artist, another song: that candidate says nothing, so it is not shown.
+        (Track("Hallo, Lieve Mensen", ["Artist B"], duration_ms=180_000), "only other songs on Fake", None),
+        # The same song, but half a minute longer: not sure enough.
+        (Track("Song B", ["Artist B"], duration_ms=210_000), "score too low for a match (0.90, needs 0.95)", "Song B"),
+    ],
+)
+def test_each_track_not_found_says_why(wanted, reason, closest):
+    class Everything(FakeProvider):
+        def search(self, query):  # every track in the catalogue, for every search
+            return self.catalog
+
+    _, (miss,) = resolve_tracks(Everything(catalog=CATALOG), [wanted], min_score=0.95)
+    assert miss.reason == reason
+    assert (miss.closest.track.title if miss.closest else None) == closest
 
 
 def test_an_import_reports_each_step():

@@ -95,7 +95,7 @@ def transfer() -> tuple[Response, int]:
             source_provider, liked=not playlist, playlist=playlist, progress=job.progress
         )
         destination = name or (f"{LIKED} (from {source.title()})" if source_name == LIKED else source_name)
-        destination = None if data.get("favorites") else destination  # None: the target's favourites
+        destination = None if data.get("into") == "favorites" else destination  # None: the target's favourites
         return import_tracks(target_provider, tracks, destination, progress=job.progress).summary()
 
     return _start("transfer", f"Transfer from {source.title()} to {target.title()}", work)
@@ -218,8 +218,8 @@ def import_csv(service: str) -> tuple[Response, int]:
     if not (tracks := parse_csv(io.StringIO(text, newline=""), upload.filename)):
         raise CsvError("There are no tracks in this file.")
     playlist = request.form.get("playlist", "").strip() or "Music-Sync import"
-    playlist = None if request.form.get("favorites") else playlist  # None: the favourites
-    albums = bool(request.form.get("albums"))  # a row per album, as csv2tidal took them
+    playlist = None if request.form.get("into") == "favorites" else playlist  # None: the favourites
+    albums = request.form.get("contains") == "albums"  # a row per album, as csv2tidal took them
     provider = _services().provider(service)  # built here, so missing credentials fail the request, not the job
 
     def work(job: Job) -> str:

@@ -2,11 +2,27 @@
 {% block title %}Music-Sync Dashboard{% endblock %}
 
 {# A select with the services that are logged in, under a placeholder. #}
-{% macro service_select(id, placeholder) %}
-<select id="{{ id }}" required>
-  <option value="">{{ placeholder }}</option>
+{% macro service_select(id, name) %}
+<select id="{{ id }}" name="{{ name }}" required>
+  <option value="">Choose…</option>
   {% for a in accounts if a.connected %}<option value="{{ a.name }}">{{ a.label }}</option>{% endfor %}
 </select>
+{% endmacro %}
+
+{# A labelled field: the label small, above what it labels. #}
+{% macro field(label, class="") %}
+<label class="field {{ class }}"><span>{{ label }}</span>{{ caller() }}</label>
+{% endmacro %}
+
+{# A choice between a few options: radio buttons that look like one row of buttons. #}
+{% macro choice(label, name, options, class="") %}
+<div class="field {{ class }}"><span>{{ label }}</span>
+  <div class="choice">
+    {% for value, text in options %}
+    <label><input type="radio" name="{{ name }}" value="{{ value }}"{{ " checked" if loop.first }}><span>{{ text }}</span></label>
+    {% endfor %}
+  </div>
+</div>
 {% endmacro %}
 
 {% block content %}
@@ -40,36 +56,36 @@
   <section class="card">
     <h2>Export to CSV</h2>
     <p class="muted small">Save your liked songs or a playlist as a CSV file.</p>
-    <form id="export-form" class="row">
-      {{ service_select('export-service', 'Choose a service…') }}
-      <select id="export-playlist"><option value="">Liked songs</option></select>
-      <button class="btn primary" type="submit" data-job-button>Download</button>
+    <form id="export-form" class="fields">
+      {% call field("From") %}{{ service_select("export-service", "service") }}{% endcall %}
+      {% call field("What") %}<select id="export-playlist" name="playlist"><option value="">Liked songs</option></select>{% endcall %}
+      <div class="actions"><button class="btn primary" type="submit" data-job-button>Download</button></div>
     </form>
   </section>
 
   <section class="card">
     <h2>Import a CSV</h2>
-    <p class="muted small">Add the tracks of a CSV file to a playlist. Tracks that are already in it are skipped.</p>
-    <form id="import-form" class="row">
-      {{ service_select('import-service', 'Choose a service…') }}
-      <input id="import-playlist" placeholder="Playlist name" value="Music-Sync import">
-      <label class="check"><input id="import-favorites" type="checkbox"> or to favourites</label>
-      <label class="check"><input id="import-albums" type="checkbox"> albums (artist,album)</label>
-      <input id="import-file" type="file" accept=".csv,text/csv" required>
-      <button class="btn primary" type="submit" data-job-button>Import</button>
+    <p class="muted small">Add the tracks or albums of a CSV file to a playlist or your favourites. What is already there is skipped.</p>
+    <form id="import-form" class="fields">
+      {% call field("File") %}<input type="file" name="file" accept=".csv,text/csv" required>{% endcall %}
+      {{ choice("It lists", "contains", [("tracks", "Tracks"), ("albums", "Albums")]) }}
+      {% call field("To") %}{{ service_select("import-service", "service") }}{% endcall %}
+      {{ choice("Into", "into", [("playlist", "A playlist"), ("favorites", "Favourites")], "if-tracks") }}
+      {% call field("Playlist", "if-playlist") %}<input name="playlist" value="Music-Sync import">{% endcall %}
+      <div class="actions"><button class="btn primary" type="submit" data-job-button>Import</button></div>
     </form>
   </section>
 
   <section class="card">
     <h2>Transfer</h2>
     <p class="muted small">Copy your liked songs or a playlist straight to the other service.</p>
-    <form id="transfer-form" class="row">
-      {{ service_select('transfer-source', 'From…') }}
-      <select id="transfer-playlist"><option value="">Liked songs</option></select>
-      {{ service_select('transfer-target', 'To…') }}
-      <input id="transfer-name" placeholder="Name of the new playlist (optional)">
-      <label class="check"><input id="transfer-favorites" type="checkbox"> or to favourites</label>
-      <button class="btn primary" type="submit" data-job-button>Transfer</button>
+    <form id="transfer-form" class="fields">
+      {% call field("From") %}{{ service_select("transfer-source", "source") }}{% endcall %}
+      {% call field("What") %}<select id="transfer-playlist" name="playlist"><option value="">Liked songs</option></select>{% endcall %}
+      {% call field("To") %}{{ service_select("transfer-target", "target") }}{% endcall %}
+      {{ choice("Into", "into", [("playlist", "A new playlist"), ("favorites", "Favourites")]) }}
+      {% call field("Playlist name", "if-playlist") %}<input name="name" placeholder="Same as the source">{% endcall %}
+      <div class="actions"><button class="btn primary" type="submit" data-job-button>Transfer</button></div>
     </form>
   </section>
 </div>

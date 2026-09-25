@@ -88,8 +88,26 @@ select, input {
   height: 2rem; padding: 0 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem;
   background: var(--surface); color: var(--text); font: inherit; font-size: 0.875rem;
 }
-.check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.875rem; }
-.check input { height: auto; }
+/* forms: labelled fields in a grid, the button on its own line */
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.75rem 1rem; margin-top: 0.5rem; }
+.field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.field > span { color: var(--muted); font-size: 0.75rem; }
+.field > select, .field > input { width: 100%; }
+.actions { display: flex; grid-column: 1 / -1; justify-content: flex-end; }
+/* a choice: radio buttons as one row of buttons */
+.choice { display: flex; height: 2rem; border: 1px solid var(--border); border-radius: 0.5rem; overflow: hidden; }
+.choice label { position: relative; flex: 1; }
+.choice input { position: absolute; opacity: 0; }
+.choice span {
+  display: flex; align-items: center; justify-content: center; height: 100%; padding: 0 0.75rem;
+  font-size: 0.875rem; white-space: nowrap; cursor: pointer;
+}
+.choice label + label span { border-left: 1px solid var(--border); }
+.choice input:checked + span { background: var(--accent); color: var(--on-accent); }
+.choice input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* fields that only count for one choice: a playlist name for a playlist, "Into" for tracks */
+form:has([value="favorites"]:checked) .if-playlist,
+form:has([value="albums"]:checked) :is(.if-playlist, .if-tracks) { display: none; }
 input[type="file"] { padding: 0 0.5rem 0 0; line-height: 2rem; }
 input[type="file"]::file-selector-button {
   height: 100%; margin-right: 0.75rem; padding: 0 0.75rem; border: 0; border-right: 1px solid var(--border);

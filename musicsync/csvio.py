@@ -48,7 +48,7 @@ def parse_csv(fh: TextIO, source: str = "the CSV") -> list[Track]:
         return []
 
     header = [_ALIASES.get(cell.strip().lower()) for cell in rows[0]]
-    if "title" in header:
+    if "title" in header or "album" in header:
         columns, body = header, rows[1:]
     else:
         columns, body = ["artists", "title"], rows  # no header row: "artist,title"
@@ -57,7 +57,7 @@ def parse_csv(fh: TextIO, source: str = "the CSV") -> list[Track]:
 
 
 def _track(record: dict[str, str]) -> Track | None:
-    if not (title := record.get("title")):
+    if not (title := record.get("title") or record.get("album")):  # a list of albums has no track titles
         return None
     ids = {}
     if record.get("spotify_uri", "").startswith("spotify:track:"):

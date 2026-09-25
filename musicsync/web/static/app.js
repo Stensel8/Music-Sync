@@ -167,6 +167,7 @@ $('import-form')?.addEventListener('submit', (e) => {
   form.append('file', $('import-file').files[0]);
   form.append('playlist', $('import-playlist').value);
   if ($('import-favorites').checked) form.append('favorites', '1');
+  if ($('import-albums').checked) form.append('albums', '1');
   start(`/${$('import-service').value}/import`, { body: form });
 });
 

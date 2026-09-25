@@ -15,7 +15,7 @@ from .errors import ConfigError, MusicSyncError, ProviderError
 from .models import Track
 from .providers.base import Provider
 from .services import Services
-from .sync import LIKED, Miss, Progress, Step, import_tracks, remaining, select_tracks
+from .sync import LIKED, Miss, Progress, Step, import_albums, import_tracks, remaining, select_tracks
 
 type Handler = Callable[[argparse.Namespace, Services], int]
 
@@ -149,14 +149,14 @@ def cmd_import(args: argparse.Namespace, services: Services) -> int:
     if not tracks:
         print(f"No tracks found in {args.file}.")
         return 1
-    result = import_tracks(
-        services.provider(args.service),
-        tracks,
-        None if args.to_favorites else args.playlist,
-        min_score=args.min_score,
-        dry_run=args.dry_run,
-        progress=_progress(args.quiet),
-    )
+    provider, progress = services.provider(args.service), _progress(args.quiet)
+    if args.albums:  # a row per album, as csv2tidal took them
+        result = import_albums(provider, tracks, min_score=args.min_score, dry_run=args.dry_run, progress=progress)
+    else:
+        playlist = None if args.to_favorites else args.playlist
+        result = import_tracks(
+            provider, tracks, playlist, min_score=args.min_score, dry_run=args.dry_run, progress=progress
+        )
     print(result.summary())
     _report_unmatched(result.misses, args.unmatched)
     return 0
@@ -305,6 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
     into = imp.add_mutually_exclusive_group()
     into.add_argument("--playlist", default="Music-Sync import", help="playlist to add to, created if missing")
     into.add_argument("--to-favorites", action="store_true", help="add to your favourites (liked songs) instead")
+    into.add_argument("--albums", action="store_true", help="rows are albums (artist,album), for your favourites")
     _add_matching_options(imp)
 
     transfer = add("transfer", cmd_transfer, "copy liked songs or playlists from one service to another", service=False)

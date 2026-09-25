@@ -54,6 +54,7 @@ music-sync transfer spotify tidal --playlist "Road trip"
 music-sync export spotify --liked -o liked.csv
 music-sync export tidal --all -o backup/          # liked songs and every playlist
 music-sync import tidal liked.csv --playlist "From CSV"
+music-sync import tidal albums.csv --albums       # artist,album per row, to your favourite albums
 
 music-sync status                                 # what is set up and logged in
 music-sync doctor                                 # tries the real APIs
@@ -66,6 +67,7 @@ music-sync doctor                                 # tries the real APIs
 | `--min-score 0.8` | How sure a match must be (0 to 1) |
 | `--to-playlist NAME` | The playlist to fill (transfer) |
 | `--to-favorites` | Add to your favourites (liked songs) instead of a playlist (import) |
+| `--albums` | The CSV lists albums, not tracks; add them to your favourites (import) |
 | `-q` | No progress output |
 | `-v` (before the command) | Log every API call, for a bug report |
 
@@ -150,7 +152,7 @@ Remaster notes, "feat." parts, spelling and punctuation do not count. Another ve
 | `isrc` | ISRC, the most reliable way to find a track again |
 | `spotify_uri` / `tidal_id` | The track's id on that service |
 
-Files must be UTF-8. The column names of other exporters (`Track Name`, `Artist Name(s)`, ...) work too, and a file without a header row is read as `artist,title`.
+Files must be UTF-8. The column names of other exporters (`Track Name`, `Artist Name(s)`, ...) work too, and a file without a header row is read as `artist,title`. With `--albums` each row is an album: `artist,album`, as csv2tidal took them.
 
 ## Good to know
 

@@ -14,7 +14,7 @@ from ..errors import CsvError, NotLoggedIn, ProviderError
 from ..models import Track
 from ..oauth import pkce_pair
 from ..services import Services
-from ..sync import LIKED, import_tracks, select_tracks
+from ..sync import LIKED, import_albums, import_tracks, select_tracks
 from .jobs import Job, JobManager
 
 pages = Blueprint("pages", __name__)
@@ -219,9 +219,12 @@ def import_csv(service: str) -> tuple[Response, int]:
         raise CsvError("There are no tracks in this file.")
     playlist = request.form.get("playlist", "").strip() or "Music-Sync import"
     playlist = None if request.form.get("favorites") else playlist  # None: the favourites
+    albums = bool(request.form.get("albums"))  # a row per album, as csv2tidal took them
     provider = _services().provider(service)  # built here, so missing credentials fail the request, not the job
 
     def work(job: Job) -> str:
+        if albums:
+            return import_albums(provider, tracks, progress=job.progress).summary()
         return import_tracks(provider, tracks, playlist, progress=job.progress).summary()
 
     return _start("import", f"Import into {service.title()}", work)

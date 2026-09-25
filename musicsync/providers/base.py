@@ -68,6 +68,10 @@ class Provider(ABC):
         """Free-text search, best result first."""
 
     @abstractmethod
+    def search_albums(self, query: str) -> list[Track]:
+        """Free-text search for albums, best first. An album comes as a Track with the album's title."""
+
+    @abstractmethod
     def create_playlist(self, name: str, description: str = "") -> str:
         """Create a private playlist and return its id."""
 
@@ -79,6 +83,10 @@ class Provider(ABC):
     def add_favorite_tracks(self, tracks: list[Track]) -> None:
         """Add tracks that have an id on this service to the favourites (liked songs), at most ``favorite_batch``,
         in one request."""
+
+    @abstractmethod
+    def add_favorite_albums(self, albums: list[Track]) -> None:
+        """Add albums that have an id on this service to the favourites, at most ``favorite_batch``, in one request."""
 
     def _refused(self, what: str) -> ProviderError:
         """A write that the service refused (HTTP 403): a login from before Music-Sync asked to change ``what``."""

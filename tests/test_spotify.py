@@ -141,6 +141,19 @@ def test_a_login_without_the_permission_to_change_liked_songs_is_told_to_log_in_
 
 
 @responses.activate
+def test_albums_are_searched_and_saved_like_tracks(spotify):
+    album = {"type": "album", "name": "Discovery", "uri": "spotify:album:5", "artists": [{"name": "Daft Punk"}]}
+    responses.get(f"{API}/search", json={"albums": {"items": [album]}})
+    (found,) = spotify.search_albums("Discovery Daft Punk")
+    assert (found.title, found.artists, found.ids) == ("Discovery", ["Daft Punk"], {"spotify": "spotify:album:5"})
+    assert sent_query(responses.calls[0])["type"] == ["album"]
+
+    responses.put(f"{API}/me/library")
+    spotify.add_favorite_albums([found])
+    assert sent_query(responses.calls[1])["uris"] == ["spotify:album:5"]
+
+
+@responses.activate
 def test_find_prefers_the_isrc_and_falls_back_to_a_text_search(spotify):
     responses.get(f"{API}/search", json={"tracks": {"items": [sp_track("Other Song", "spotify:track:9")]}})
     by_isrc = spotify.find(Track("Song", ["Artist"], isrc=ISRC_A))

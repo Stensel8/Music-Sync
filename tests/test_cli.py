@@ -160,6 +160,16 @@ def test_sync_favorites_puts_liked_songs_in_the_favourites(tmp_path, capsys):
     assert cli.main(["transfer", "spotify", "tidal", "--sync-favorites", "--to-playlist", "X"], services) == 1
 
 
+def test_import_albums_like_csv2tidal(tmp_path, capsys):
+    csv_file = tmp_path / "albums.csv"
+    csv_file.write_text("Daft Punk,Discovery\n", encoding="utf-8")  # csv2tidal's format: artist,album
+    tidal = FakeProvider("tidal")
+    tidal.albums = [track("Discovery", "Daft Punk", ids={"tidal": "5"})]
+    assert cli.main(["import", "tidal", str(csv_file), "--albums", "-q"], FakeServices(tmp_path, tidal=tidal)) == 0
+    assert [a.ids for a in tidal.favorite_albums] == [{"tidal": "5"}]
+    assert "Favourite albums: 1 matched, 0 not found; added 1" in capsys.readouterr().out
+
+
 def test_missing_credentials_are_explained_not_a_crash(tmp_path, capsys):
     services = Services(Settings(), TokenStore(tmp_path / "tokens.json"))
     assert cli.main(["playlists", "spotify"], services) == 1

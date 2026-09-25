@@ -35,8 +35,8 @@ class SpotifyOAuth(OAuthClient):
 
 
 def parse_track(obj: dict[str, Any] | None) -> Track | None:
-    """A Spotify track object as a Track; None for empty entries and podcast episodes."""
-    if not obj or obj.get("type", "track") != "track" or not obj.get("name"):
+    """A Spotify track (or album) object as a Track; None for empty entries and podcast episodes."""
+    if not obj or obj.get("type", "track") not in ("track", "album") or not obj.get("name"):
         return None
     # Local files (uploaded by the user) have a URI that no one else can use.
     uri = None if obj.get("is_local") else obj.get("uri")
@@ -119,10 +119,13 @@ class SpotifyProvider(Provider):
                 ) from exc
             raise
 
-    def search(self, query: str) -> list[Track]:
+    def search(self, query: str, kind: str = "track") -> list[Track]:
         # Apps in development mode get at most 10 results per search request.
-        data = self._request("GET", "/search", params={"q": query, "type": "track", "limit": 10})
-        return [track for item in data.get("tracks", {}).get("items", []) if (track := parse_track(item))]
+        data = self._request("GET", "/search", params={"q": query, "type": kind, "limit": 10})
+        return [track for item in data.get(f"{kind}s", {}).get("items", []) if (track := parse_track(item))]
+
+    def search_albums(self, query: str) -> list[Track]:
+        return self.search(query, "album")
 
     def lookup_isrcs(self, isrcs: Collection[str]) -> dict[str, list[Track]]:
         # Spotify has no bulk ISRC lookup, so this is one search per code.
@@ -143,5 +146,8 @@ class SpotifyProvider(Provider):
             self._request("PUT", "/me/library", params={"uris": ",".join(uris)})
         except ApiError as exc:
             if exc.status == 403:
-                raise self._refused("liked songs") from exc
+                raise self._refused("library") from exc
             raise
+
+    def add_favorite_albums(self, albums: list[Track]) -> None:
+        self.add_favorite_tracks(albums)  # albums are saved the same way, by URI

@@ -297,6 +297,21 @@ def test_import_runs_as_a_job_and_reports_what_was_not_found(client, services):
     assert csv_tracks(client.get(f"/jobs/{job_id}/unmatched.csv")) == ["Nothing"]
 
 
+def test_import_can_add_albums(client, services):
+    tidal = services.providers["tidal"]
+    assert isinstance(tidal, FakeProvider)
+    tidal.albums = [track("Discovery", "Daft Punk", ids={"tidal": "5"})]
+    response = client.post(
+        "/tidal/import",
+        data={"file": (io.BytesIO(b"Daft Punk,Discovery\n"), "albums.csv"), "albums": "1"},
+        headers=JSON,
+        content_type="multipart/form-data",
+    )
+    job = wait_for(client, response.get_json()["id"])
+    assert job["message"] == "Favourite albums: 1 matched, 0 not found; added 1"
+    assert [a.ids for a in tidal.favorite_albums] == [{"tidal": "5"}]
+
+
 @pytest.mark.parametrize(
     ("body", "message"),
     [(b"", "no tracks"), ("Björk,Jóga".encode("latin-1"), "UTF-8")],

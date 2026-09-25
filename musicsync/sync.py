@@ -6,10 +6,10 @@ from functools import partial
 from itertools import batched
 from typing import Literal
 
-from .errors import ProviderError
+from .errors import ApiError, ProviderError
 from .matching import best_match, rejection, song_key
 from .models import Match, PlaylistInfo, Track
-from .providers.base import Provider
+from .providers.base import UNLOOKUPABLE, Provider
 
 LIKED = "Liked Songs"  # our name for a service's liked / saved tracks
 DESCRIPTION = "Imported with Music-Sync: https://github.com/Stensel8/Music-Sync"  # of the playlists it creates
@@ -137,13 +137,13 @@ def select_tracks(
     return [(name, tracks) for name, tracks in found if tracks]
 
 
-def _miss(track: Track, closest: Match | None, provider: Provider, min_score: float) -> Miss:
+def _miss(track: Track, closest: Match | None, provider: Provider, min_score: float, what: str = "songs") -> Miss:
     """Why ``track`` was not found, given the candidate that came closest (if any)."""
     if closest is None:
         return Miss(track, f"not on {provider.label}")
     match rejection(track, closest.track):
         case "other song":  # only the artist is the same: that candidate says nothing
-            return Miss(track, f"only other songs on {provider.label}")
+            return Miss(track, f"only other {what} on {provider.label}")
         case "other version":
             return Miss(track, "only another version", closest)
         case _:
@@ -212,6 +212,28 @@ def resolve_tracks(
     return matches, misses
 
 
+def _unique(provider: Provider, matches: list[Match]) -> dict[str, Match]:
+    """The matches by their id on ``provider``. Different source tracks can resolve to the same track on the
+    target; the first of each is kept."""
+    unique: dict[str, Match] = {}
+    for match in matches:
+        if native := provider.native_id(match.track):
+            unique.setdefault(native, match)
+    return unique
+
+
+def _add(add: Callable[[list[Track]], None], tracks: list[Track], size: int, text: str, progress: Progress | None):
+    """``add`` the tracks in batches of ``size`` (one request each), reporting each batch."""
+    if progress:
+        progress(Step("add", text, 0, len(tracks)))
+    added = 0
+    for batch in batched(tracks, size, strict=False):
+        add(list(batch))
+        added += len(batch)
+        if progress:
+            progress(Step("add", text, added, len(tracks)))
+
+
 def import_tracks(
     provider: Provider,
     tracks: list[Track],
@@ -239,11 +261,7 @@ def import_tracks(
     matches, misses = resolve_tracks(provider, tracks, min_score, progress, already)
     result = ImportResult(playlist or LIKED, existing.id if existing else None, misses=misses, dry_run=dry_run)
 
-    # Different source tracks can resolve to the same track on the target; keep the first of each.
-    unique: dict[str, Match] = {}
-    for match in matches:
-        if native := provider.native_id(match.track):
-            unique.setdefault(native, match)
+    unique = _unique(provider, matches)
     result.matched = list(unique.values())
     result.duplicates = len(matches) - len(unique)
 
@@ -252,18 +270,50 @@ def import_tracks(
     result.already_there = len(unique) - len(new)
     result.added = len(new)
     if new and not dry_run:
-        text = f"Adding to {result.playlist_name} on {provider.label}"
-        if progress:
-            progress(Step("add", text, 0, len(new)))
         if playlist is None:
             add, size = provider.add_favorite_tracks, provider.favorite_batch
         else:
             result.playlist_id = result.playlist_id or provider.create_playlist(playlist, description)
             add, size = partial(provider.add_to_playlist, result.playlist_id), provider.add_batch
-        added = 0
-        for batch in batched(new, size, strict=False):  # one request each
-            add(list(batch))
-            added += len(batch)
-            if progress:
-                progress(Step("add", text, added, len(new)))
+        _add(add, new, size, f"Adding to {result.playlist_name} on {provider.label}", progress)
+    return result
+
+
+def import_albums(
+    provider: Provider,
+    rows: list[Track],
+    *,
+    min_score: float = 0.8,
+    dry_run: bool = False,
+    progress: Progress | None = None,
+) -> ImportResult:
+    """Add the albums of ``rows`` (a CSV with an album per row: its album column, else its title) to the
+    favourites, as csv2tidal did. Saving an album that is already there changes nothing, so no check first."""
+    albums = [Track(row.album or row.title, row.artists) for row in rows]  # a Track with the album's title
+    result = ImportResult("Favourite albums", dry_run=dry_run)
+    matches: list[Match] = []
+    text = f"Finding the albums on {provider.label}"
+    for done, album in enumerate(albums, start=1):
+        try:
+            hit = best_match(album, provider.search_albums(f"{album.title} {album.artist}".strip()), min_score=0)
+        except ApiError as exc:
+            if exc.status not in UNLOOKUPABLE:
+                raise
+            hit = None  # the service could not handle this search
+        closest = Match(hit[0], hit[1], "search") if hit and hit[1] > 0 else None
+        miss = None if closest and closest.score >= min_score else _miss(album, closest, provider, min_score, "albums")
+        if miss:
+            result.misses.append(miss)
+        elif closest:
+            matches.append(closest)
+        if progress:
+            progress(Step("match", text, done, len(albums), album, len(matches), miss))
+
+    unique = _unique(provider, matches)
+    result.matched = list(unique.values())
+    result.duplicates = len(matches) - len(unique)
+    result.added = len(unique)
+    if unique and not dry_run:
+        text = f"Adding to your favourite albums on {provider.label}"
+        _add(provider.add_favorite_albums, [m.track for m in result.matched], provider.favorite_batch, text, progress)
     return result

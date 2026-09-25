@@ -171,6 +171,28 @@ def test_add_favorite_tracks_posts_to_the_collection(tidal):
 
 
 @responses.activate
+def test_albums_are_searched_and_added_like_tracks(tidal):
+    refs = {"albums": {"data": [{"id": "5", "type": "albums"}]}}
+    responses.get(f"{API}/searchResults", json={"data": [{"id": "s", "type": "searchResults", "relationships": refs}]})
+    album = {
+        "id": "5",
+        "type": "albums",
+        "attributes": {"title": "Discovery"},
+        "relationships": {"artists": {"data": [{"id": "9", "type": "artists"}]}},
+    }
+    responses.get(f"{API}/albums", json={"data": [album], "included": INCLUDED})
+    (found,) = tidal.search_albums("Discovery Daft Punk")
+    assert (found.title, found.artists, found.ids) == ("Discovery", ["Daft Punk"], {"tidal": "5"})
+    assert sent_query(responses.calls[0])["include"] == ["albums"] and sent_query(responses.calls[1])["include"] == [
+        "artists"
+    ]
+
+    responses.post(f"{API}/userCollectionAlbums/me/relationships/items", status=201)
+    tidal.add_favorite_albums([found])
+    assert sent_json(responses.calls[2]) == {"data": [{"id": "5", "type": "albums"}]}
+
+
+@responses.activate
 def test_an_isrc_lookup_reads_every_page(tidal):
     # One ISRC is often on a single, an album and a compilation: 20 codes can fill more than one page.
     next_page = "/tracks?page%5Bcursor%5D=P2"

@@ -49,6 +49,7 @@ class FakeProvider(Provider):
         self.playlists_by_id: dict[str, tuple[str, list[Track]]] = {}
         self.descriptions: dict[str, str] = {}  # of the playlists made through create_playlist
         self.isrc_lookups: list[list[str]] = []  # one entry per bulk lookup, to check the batching
+        self.searches: list[str] = []  # every search asked
         self.add_calls = 0
 
     def liked_tracks(self) -> Iterator[Track]:
@@ -67,6 +68,7 @@ class FakeProvider(Provider):
         return {isrc: found for isrc in isrcs if (found := [t for t in self.catalog if t.isrc == isrc])}
 
     def search(self, query: str) -> list[Track]:
+        self.searches.append(query)
         words = query.lower().split()
         return [t for t in self.catalog if all(word in f"{t.title} {' '.join(t.artists)}".lower() for word in words)]
 

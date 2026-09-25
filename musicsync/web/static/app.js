@@ -2,11 +2,11 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
+const el = (tag, props) => Object.assign(document.createElement(tag), props);
 
-// Asking for JSON makes the server answer errors as JSON too, instead of as an error page.
-const api = (url, init = {}) => fetch(url, { ...init, headers: { Accept: 'application/json', ...init.headers } });
-
-async function json(resp) {
+// A request to our own server. Asking for JSON makes it answer errors as JSON too, instead of as a page.
+async function api(url, init = {}) {
+  const resp = await fetch(url, { ...init, headers: { Accept: 'application/json', ...init.headers } });
   const data = await resp.json();
   if (!resp.ok) throw new Error(data.message);
   return data;
@@ -43,14 +43,10 @@ function show(text, { error = false } = {}) {
   $('job-text').classList.toggle('error', error);
 }
 
-// One track that was not found, why, and what came closest. textContent, never innerHTML: track titles
-// come from other people's playlists.
-function miss({ track, reason, closest }) {
-  const item = document.createElement('li');
-  const why = document.createElement('span');
-  why.className = 'muted';
-  why.textContent = ` — ${reason}${closest ? `; closest: ${closest}` : ''}`;
-  item.append(track, why);
+// One track that was not found, and why. textContent, never innerHTML: titles come from other people's playlists.
+function miss({ track, why }) {
+  const item = el('li');
+  item.append(track, el('span', { className: 'muted', textContent: ` — ${why}` }));
   return item;
 }
 
@@ -66,11 +62,8 @@ function render(id, job) {
   $('job-steps').hidden = job.phases.length < 2;
   $('job-steps').replaceChildren(
     ...job.phases.map((phase, i) => {
-      const step = document.createElement('li');
-      step.textContent = PHASES[phase] ?? phase;
-      if (job.status === 'done' || i < at) step.className = 'done';
-      else if (i === at) step.className = failed ? 'failed' : 'current';
-      return step;
+      const state = job.status === 'done' || i < at ? 'done' : i === at ? (failed ? 'failed' : 'current') : '';
+      return el('li', { textContent: PHASES[phase] ?? phase, className: state });
     }),
   );
 
@@ -95,10 +88,10 @@ function render(id, job) {
   $('job-current').hidden = !(running && job.phase === 'match');
   $('job-current').textContent = job.current;
 
-  $('job-unmatched').hidden = !job.unmatched_count;
-  $('job-unmatched-title').textContent = `${running ? 'Not found so far' : 'Not found'} (${count(job.unmatched_count)})`;
+  $('job-unmatched').hidden = !job.not_found;
+  $('job-unmatched-title').textContent = `${running ? 'Not found so far' : 'Not found'} (${count(job.not_found)})`;
   $('job-unmatched-list').replaceChildren(...job.unmatched.map(miss));
-  const more = job.unmatched_count - job.unmatched.length;
+  const more = job.not_found - job.unmatched.length;
   $('job-unmatched-more').textContent = more > 0 ? `… and ${count(more)} more in the CSV` : '';
   $('job-unmatched-link').href = `/jobs/${id}/unmatched.csv`;
   $('job-unmatched-link').hidden = running; // the list is complete only at the end
@@ -115,7 +108,7 @@ function render(id, job) {
 // Poll a background job until it ends. Returns what it ended as.
 async function follow(id) {
   for (;;) {
-    const job = await json(await api(`/jobs/${id}`));
+    const job = await api(`/jobs/${id}`);
     render(id, job);
     if (job.status !== 'running') return job;
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -128,7 +121,7 @@ async function start(url, init) {
   show('Starting…');
   $('job').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   try {
-    const { id } = await json(await api(url, { method: 'POST', ...init }));
+    const { id } = await api(url, { method: 'POST', ...init });
     const job = await follow(id);
     if (job.download) window.location.href = `/jobs/${id}/download`; // saves the file; the page stays
   } catch (err) {
@@ -147,7 +140,7 @@ async function fillPlaylists(service, select) {
   select.replaceChildren(new Option('Liked songs', ''));
   if (!service) return;
   try {
-    for (const p of await json(await api(`/${service}/playlists`))) {
+    for (const p of await api(`/${service}/playlists`)) {
       if (!p.readable) continue;
       const empty = p.track_count === 0;
       const option = new Option(`${p.name} (${empty ? 'empty' : (p.track_count ?? '?')})`, p.id);

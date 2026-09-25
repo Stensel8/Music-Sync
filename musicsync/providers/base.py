@@ -35,7 +35,7 @@ class Provider(ABC):
     """One music service. ``name`` is also the key of its ids in ``Track.ids``."""
 
     name: str
-    add_batch = 100  # tracks per "add to playlist" request
+    add_batch = 100  # the most tracks one "add to playlist" request takes
 
     @property
     def label(self) -> str:
@@ -72,7 +72,7 @@ class Provider(ABC):
 
     @abstractmethod
     def add_to_playlist(self, playlist_id: str, tracks: list[Track]) -> None:
-        """Add tracks that have an id on this service."""
+        """Add tracks that have an id on this service, at most ``add_batch``, in one request."""
 
     def native_id(self, track: Track) -> str | None:
         """This service's id for ``track``, if it has one."""

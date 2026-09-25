@@ -156,16 +156,14 @@ class TidalProvider(Provider):
         return str(doc["data"]["id"])
 
     def add_to_playlist(self, playlist_id: str, tracks: list[Track]) -> None:
-        ids = [track_id for track in tracks if (track_id := self.native_id(track))]
-        for batch in batched(ids, BATCH, strict=False):
-            body = {
-                "data": [{"id": track_id, "type": "tracks"} for track_id in batch],
-                "meta": {"onDuplicates": "SKIP"},  # belt and braces: sync.py also skips what is already there
-            }
-            self.api.request(
-                "POST",
-                f"/playlists/{playlist_id}/relationships/items",
-                params={"countryCode": self.country},
-                json=body,
-                headers=JSONAPI_BODY,
-            )
+        body = {
+            "data": [{"id": track_id, "type": "tracks"} for track in tracks if (track_id := self.native_id(track))],
+            "meta": {"onDuplicates": "SKIP"},  # belt and braces: sync.py also skips what is already there
+        }
+        self.api.request(
+            "POST",
+            f"/playlists/{playlist_id}/relationships/items",
+            params={"countryCode": self.country},
+            json=body,
+            headers=JSONAPI_BODY,
+        )

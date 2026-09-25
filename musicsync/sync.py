@@ -5,10 +5,10 @@ from dataclasses import dataclass, field
 from itertools import batched
 from typing import Literal
 
-from .errors import ApiError, ProviderError
+from .errors import ProviderError
 from .matching import best_match, rejection, song_key
 from .models import Match, PlaylistInfo, Track
-from .providers.base import UNLOOKUPABLE, Provider
+from .providers.base import Provider
 
 LIKED = "Liked Songs"  # our name for a service's liked / saved tracks
 DESCRIPTION = "Imported with Music-Sync: https://github.com/Stensel8/Music-Sync"  # of the playlists it creates
@@ -26,6 +26,11 @@ class Miss:
     reason: str  # for people: "score too low for a match (0.75, needs 0.80)"
     closest: Match | None = None
 
+    @property
+    def why(self) -> str:
+        """The reason, with what came closest: "only another version; closest: Artist - Song (Live)"."""
+        return f"{self.reason}; closest: {self.closest.track}" if self.closest else self.reason
+
 
 @dataclass(frozen=True, slots=True)
 class Step:
@@ -37,8 +42,8 @@ class Step:
     done: int
     total: int | None
     track: Track | None = None  # "match": the track just looked up
-    match: Match | None = None  # "match": what it was found as, None when it was not found
-    miss: Miss | None = None  # "match": why it was not found
+    found: int = 0  # "match": how many of the ``done`` tracks were found
+    miss: Miss | None = None  # "match": why the track just looked up was not found
 
 
 type Progress = Callable[[Step], None]
@@ -62,16 +67,12 @@ class ImportResult:
     added: int = 0
     dry_run: bool = False
 
-    @property
-    def unmatched(self) -> list[Track]:
-        return [miss.track for miss in self.misses]
-
     def summary(self) -> str:
         """One line: what was found, and what was (or would be) added."""
         verb = "would add" if self.dry_run else "added"
         counts = [(self.already_there, "already there"), (self.duplicates, "repeated in the input")]
         parts = [f"{verb} {self.added}", *(f"{n} {what}" for n, what in counts if n)]
-        return f"{self.playlist_name}: {len(self.matched)} matched, {len(self.unmatched)} not found; {', '.join(parts)}"
+        return f"{self.playlist_name}: {len(self.matched)} matched, {len(self.misses)} not found; {', '.join(parts)}"
 
 
 def _read(
@@ -196,25 +197,17 @@ def resolve_tracks(
         }
         known = provider.lookup_isrcs(isrcs) if isrcs else {}
         for track, match in zip(chunk, there, strict=True):
-            miss: Miss | None = None
-            if match is None:
-                try:
-                    found = provider.find(track, known)
-                except ApiError as exc:
-                    if exc.status not in UNLOOKUPABLE:
-                        raise
-                    miss = Miss(track, f"{provider.label} could not look it up ({exc})")
-                else:
-                    if found and found.score >= min_score:
-                        match = found
-                    else:
-                        miss = _miss(track, found, provider, min_score)
+            miss = None
+            if match is None:  # not in the playlist yet: look it up (find handles a search the service refuses)
+                found = provider.find(track, known)
+                match = found if found and found.score >= min_score else None
+                miss = None if match else _miss(track, found, provider, min_score)
             if match:
                 matches.append(match)
             if miss:
                 misses.append(miss)
             if progress:
-                progress(Step("match", text, len(matches) + len(misses), len(tracks), track, match, miss))
+                progress(Step("match", text, len(matches) + len(misses), len(tracks), track, len(matches), miss))
     return matches, misses
 
 
@@ -238,8 +231,7 @@ def import_tracks(
         in_playlist = _read(provider.playlist_tracks(existing.id), text, existing.track_count, progress, "check")
 
     matches, misses = resolve_tracks(provider, tracks, min_score, progress, in_playlist)
-    result = ImportResult(playlist_name=playlist, misses=misses, dry_run=dry_run)
-    result.playlist_id = existing.id if existing else None
+    result = ImportResult(playlist, existing.id if existing else None, misses=misses, dry_run=dry_run)
 
     # Different source tracks can resolve to the same track on the target; keep the first of each.
     unique: dict[str, Match] = {}
@@ -259,7 +251,7 @@ def import_tracks(
             progress(Step("add", text, 0, len(new)))
         result.playlist_id = result.playlist_id or provider.create_playlist(playlist, description)
         added = 0
-        for batch in batched(new, provider.add_batch, strict=False):  # one request each, so progress per batch
+        for batch in batched(new, provider.add_batch, strict=False):  # one request each
             provider.add_to_playlist(result.playlist_id, list(batch))
             added += len(batch)
             if progress:

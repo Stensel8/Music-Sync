@@ -30,7 +30,7 @@ def test_import_creates_the_playlist_and_reports_everything():
     service = FakeProvider(catalog=CATALOG)
     result = import_tracks(service, source_tracks(), "Mix")
     assert [m.method for m in result.matched] == ["isrc", "search"]
-    assert [str(t) for t in result.unmatched] == ["Nobody - Nonexistent"]
+    assert [str(miss.track) for miss in result.misses] == ["Nobody - Nonexistent"]
     assert (result.duplicates, result.added, result.already_there) == (1, 2, 0)
     assert result.playlist_id is not None and ids_in(service, result.playlist_id) == ["1", "2"]
     assert (
@@ -47,16 +47,7 @@ def test_running_it_again_adds_nothing():
 
 
 def test_a_second_run_looks_up_nothing_the_playlist_already_has():
-    class Counting(FakeProvider):
-        def __init__(self) -> None:
-            super().__init__(catalog=CATALOG)
-            self.searches: list[str] = []
-
-        def search(self, query):
-            self.searches.append(query)
-            return super().search(query)
-
-    service = Counting()
+    service = FakeProvider(catalog=CATALOG)
     findable = source_tracks()[:2]  # one found by ISRC, one by a search
     import_tracks(service, findable, "Mix")
     asked = (list(service.searches), list(service.isrc_lookups))
@@ -142,11 +133,11 @@ def test_quota_and_server_errors_stop_the_run(error):
 def test_progress_is_reported_for_every_track():
     steps: list[Step] = []
     resolve_tracks(FakeProvider(catalog=CATALOG), source_tracks(), progress=steps.append)
-    assert [(s.phase, s.done, s.total, s.match is not None) for s in steps] == [
-        ("match", 1, 4, True),
-        ("match", 2, 4, True),
-        ("match", 3, 4, False),
-        ("match", 4, 4, True),
+    assert [(s.phase, s.done, s.total, s.found, s.miss is None) for s in steps] == [
+        ("match", 1, 4, 1, True),
+        ("match", 2, 4, 2, True),
+        ("match", 3, 4, 2, False),
+        ("match", 4, 4, 3, True),
     ]
     assert steps[0].text == "Finding the tracks on Fake" and steps[2].track == source_tracks()[2]
 
@@ -157,7 +148,8 @@ def test_a_track_that_came_close_is_reported_with_its_closest_candidate():
     matches, (miss,) = resolve_tracks(FakeProvider(catalog=CATALOG), [near], progress=steps.append)
     assert matches == [] and miss.track is near and miss.reason == "only another version"
     assert miss.closest is not None and miss.closest.track.title == "Song B"
-    assert steps[0].match is None and steps[0].miss == miss
+    assert steps[0].found == 0 and steps[0].miss == miss
+    assert miss.why == "only another version; closest: Artist B - Song B"
 
 
 @pytest.mark.parametrize(

@@ -9,6 +9,7 @@ from itertools import batched
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from ..errors import ApiError
 from ..http import ApiClient
 from ..models import PlaylistInfo, Track, normalize_isrc
 from ..oauth import OAuthClient
@@ -24,7 +25,7 @@ class TidalOAuth(OAuthClient):
     name = "tidal"
     authorize_endpoint = "https://login.tidal.com/authorize"
     token_endpoint = "https://auth.tidal.com/v1/oauth2/token"
-    scopes = ("collection.read", "playlists.read", "playlists.write")
+    scopes = ("collection.read", "collection.write", "playlists.read", "playlists.write")
 
 
 _DURATION = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?")
@@ -39,8 +40,9 @@ def parse_duration(value: str | None) -> int | None:
     return round((hours * 3600 + minutes * 60 + seconds) * 1000)
 
 
-def parse_tracks(doc: dict[str, Any]) -> list[Track]:
-    """The tracks in a JSON:API document, with the artist and album names found in ``included``."""
+def parse_tracks(doc: dict[str, Any], kind: str = "tracks") -> list[Track]:
+    """The tracks (or with ``kind="albums"`` the albums) in a JSON:API document, with the artist and album
+    names found in ``included``."""
     included = {(res["type"], str(res["id"])): res.get("attributes", {}) for res in doc.get("included", [])}
 
     def related(track: dict[str, Any], kind: str, field: str) -> list[str]:
@@ -50,7 +52,7 @@ def parse_tracks(doc: dict[str, Any]) -> list[Track]:
     tracks = []
     for res in doc.get("data", []):
         attrs = res.get("attributes", {})
-        if res.get("type") != "tracks" or not attrs.get("title"):
+        if res.get("type") != kind or not attrs.get("title"):
             continue
         # Tidal keeps "Remastered 2011" and the like in a separate "version" field.
         title = f"{attrs['title']} ({attrs['version']})" if attrs.get("version") else attrs["title"]
@@ -67,9 +69,9 @@ def parse_tracks(doc: dict[str, Any]) -> list[Track]:
     return tracks
 
 
-def _track_ids(doc: dict[str, Any]) -> list[str]:
-    """The ids of the tracks in a relationship document (videos are skipped)."""
-    return [str(ref["id"]) for ref in doc.get("data", []) if ref.get("type") == "tracks"]
+def _track_ids(doc: dict[str, Any], kind: str = "tracks") -> list[str]:
+    """The ids of the tracks (or albums) in a relationship document (videos are skipped)."""
+    return [str(ref["id"]) for ref in doc.get("data", []) if ref.get("type") == kind]
 
 
 def _next_cursor(doc: dict[str, Any]) -> str | None:
@@ -101,12 +103,13 @@ class TidalProvider(Provider):
                 return
             cursor = following
 
-    def _tracks_by_id(self, ids: list[str]) -> list[Track]:
-        """Full tracks (with artist and album names) for ``ids``, in the same order."""
+    def _tracks_by_id(self, ids: list[str], kind: str = "tracks") -> list[Track]:
+        """Full tracks (with artist and album names), or albums, for ``ids``, in the same order."""
+        include = "artists,albums" if kind == "tracks" else "artists"
         found: dict[str, Track] = {}
         for batch in batched(ids, BATCH, strict=False):
-            doc = self._get(self.catalog, "/tracks", {"filter[id]": list(batch), "include": "artists,albums"})
-            found.update({track.ids["tidal"]: track for track in parse_tracks(doc)})
+            doc = self._get(self.catalog, f"/{kind}", {"filter[id]": list(batch), "include": include})
+            found.update({track.ids["tidal"]: track for track in parse_tracks(doc, kind)})
         return [found[track_id] for track_id in ids if track_id in found]
 
     def liked_tracks(self) -> Iterator[Track]:
@@ -138,14 +141,17 @@ class TidalProvider(Provider):
                         found.setdefault(track.isrc, []).append(track)
         return found
 
-    def search(self, query: str) -> list[Track]:
-        doc = self._get(self.catalog, "/searchResults", {"filter[query]": query[:100], "include": "tracks"})
+    def search(self, query: str, kind: str = "tracks") -> list[Track]:
+        doc = self._get(self.catalog, "/searchResults", {"filter[query]": query[:100], "include": kind})
         ids = [
             track_id
             for res in doc.get("data", [])
-            for track_id in _track_ids(res.get("relationships", {}).get("tracks", {}))
+            for track_id in _track_ids(res.get("relationships", {}).get(kind, {}), kind)
         ]
-        return self._tracks_by_id(ids[:BATCH])  # one request for all of them
+        return self._tracks_by_id(ids[:BATCH], kind)  # one request for all of them
+
+    def search_albums(self, query: str) -> list[Track]:
+        return self.search(query, "albums")
 
     def create_playlist(self, name: str, description: str = "") -> str:
         # accessType is left out so the playlist gets Tidal's default (private) visibility.
@@ -167,3 +173,21 @@ class TidalProvider(Provider):
             json=body,
             headers=JSONAPI_BODY,
         )
+
+    def add_favorite_tracks(self, tracks: list[Track], kind: str = "tracks") -> None:
+        body = {"data": [{"id": item_id, "type": kind} for track in tracks if (item_id := self.native_id(track))]}
+        try:
+            self.api.request(
+                "POST",
+                f"/userCollection{kind.title()}/me/relationships/items",
+                params={"countryCode": self.country},
+                json=body,
+                headers=JSONAPI_BODY,
+            )
+        except ApiError as exc:
+            if exc.status == 403:
+                raise self._refused("collection") from exc
+            raise
+
+    def add_favorite_albums(self, albums: list[Track]) -> None:
+        self.add_favorite_tracks(albums, "albums")

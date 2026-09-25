@@ -55,6 +55,10 @@ def test_a_header_with_only_artist_and_title(tmp_path):
     assert [(t.artists, t.title) for t in read_tracks(write(tmp_path, "artist,title\nA,B\n"))] == [(["A"], "B")]
 
 
+def test_a_list_of_albums_takes_the_album_as_title(tmp_path):
+    assert [(t.artists, t.title) for t in read_tracks(write(tmp_path, "Artist,Album\nA,B\n"))] == [(["A"], "B")]
+
+
 def test_junk_values_are_ignored(tmp_path):
     text = "title,artists,duration_ms,isrc,spotify_uri\nX,Y,not-a-number,ISRC1,https://example.com\n"
     (t,) = read_tracks(write(tmp_path, text))

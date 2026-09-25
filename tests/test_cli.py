@@ -145,6 +145,31 @@ def test_quiet_means_no_progress(tmp_path, capsys):
     assert capsys.readouterr().err == ""
 
 
+def test_sync_favorites_puts_liked_songs_in_the_favourites(tmp_path, capsys):
+    tidal = FakeProvider("tidal", CATALOG)
+    spotify = FakeProvider("spotify", liked=[Track("Song A", ["Artist A"], isrc=ISRC_A)])
+    services = FakeServices(tmp_path, spotify=spotify, tidal=tidal)
+    assert cli.main(["transfer", "spotify", "tidal", "--sync-favorites", "-q"], services) == 0
+    assert tidal.playlists_by_id == {} and [tidal.native_id(t) for t in tidal.liked] == ["1"]
+    assert "Liked Songs: 1 matched" in capsys.readouterr().out
+
+    csv_file = tmp_path / "in.csv"
+    write_tracks(csv_file, [Track("Song B", ["Artist B"])])
+    assert cli.main(["import", "tidal", str(csv_file), "--to-favorites", "-q"], services) == 0
+    assert [tidal.native_id(t) for t in tidal.liked] == ["1", "2"]
+    assert cli.main(["transfer", "spotify", "tidal", "--sync-favorites", "--to-playlist", "X"], services) == 1
+
+
+def test_import_albums_like_csv2tidal(tmp_path, capsys):
+    csv_file = tmp_path / "albums.csv"
+    csv_file.write_text("Daft Punk,Discovery\n", encoding="utf-8")  # csv2tidal's format: artist,album
+    tidal = FakeProvider("tidal")
+    tidal.albums = [track("Discovery", "Daft Punk", ids={"tidal": "5"})]
+    assert cli.main(["import", "tidal", str(csv_file), "--albums", "-q"], FakeServices(tmp_path, tidal=tidal)) == 0
+    assert [a.ids for a in tidal.favorite_albums] == [{"tidal": "5"}]
+    assert "Favourite albums: 1 matched, 0 not found; added 1" in capsys.readouterr().out
+
+
 def test_missing_credentials_are_explained_not_a_crash(tmp_path, capsys):
     services = Services(Settings(), TokenStore(tmp_path / "tokens.json"))
     assert cli.main(["playlists", "spotify"], services) == 1

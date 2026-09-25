@@ -53,6 +53,8 @@
     <form id="import-form" class="row">
       {{ service_select('import-service', 'Choose a service…') }}
       <input id="import-playlist" placeholder="Playlist name" value="Music-Sync import">
+      <label class="check"><input id="import-favorites" type="checkbox"> or to favourites</label>
+      <label class="check"><input id="import-albums" type="checkbox"> albums (artist,album)</label>
       <input id="import-file" type="file" accept=".csv,text/csv" required>
       <button class="btn primary" type="submit" data-job-button>Import</button>
     </form>
@@ -66,6 +68,7 @@
       <select id="transfer-playlist"><option value="">Liked songs</option></select>
       {{ service_select('transfer-target', 'To…') }}
       <input id="transfer-name" placeholder="Name of the new playlist (optional)">
+      <label class="check"><input id="transfer-favorites" type="checkbox"> or to favourites</label>
       <button class="btn primary" type="submit" data-job-button>Transfer</button>
     </form>
   </section>

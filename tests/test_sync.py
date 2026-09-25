@@ -3,7 +3,7 @@ import pytest
 from musicsync.errors import ApiError, ProviderError, QuotaExceeded
 from musicsync.models import Track
 from musicsync.providers.base import search_queries
-from musicsync.sync import Step, import_tracks, resolve_tracks, select_tracks
+from musicsync.sync import Step, import_albums, import_tracks, resolve_tracks, select_tracks
 
 from .support import ISRC_A, FakeProvider, track
 
@@ -71,6 +71,38 @@ def test_a_track_in_the_playlist_is_recognised_by_id_isrc_or_song(wanted):
     service.existing_playlist("Mix", CATALOG[0])
     (match,), misses = resolve_tracks(service, [wanted], present=[CATALOG[0]])
     assert misses == [] and match.method == "playlist" and match.track is CATALOG[0]
+
+
+def test_tracks_can_go_to_the_favourites_skipping_what_is_already_there():
+    service = FakeProvider(catalog=CATALOG, liked=[CATALOG[0]])
+    steps: list[Step] = []
+    result = import_tracks(service, source_tracks(), None, progress=steps.append)
+    assert result.playlist_name == "Liked Songs" and service.playlists_by_id == {}  # no playlist made
+    assert (result.added, result.already_there) == (1, 1)
+    assert [service.native_id(t) for t in service.liked] == ["1", "2"]
+    assert steps[0].text == "Checking your liked songs on Fake"
+    assert steps[-1].text == "Adding to Liked Songs on Fake"
+
+
+def test_albums_go_to_the_favourites_as_csv2tidal_did():
+    service = FakeProvider()
+    service.albums = [
+        track("Discovery", "Daft Punk", ids={"fake": "a1"}),
+        track("Homework", "Daft Punk", ids={"fake": "a2"}),
+    ]
+    service.favorite_batch = 1
+    rows = [
+        Track("Discovery", ["Daft Punk"]),  # artist,album as csv2tidal read it: the album comes as the title
+        Track("One More Time", ["Daft Punk"], album="Discovery"),  # a track list: the album column counts
+        Track("Alive 2007", ["Daft Punk"]),  # not there
+    ]
+    steps: list[Step] = []
+    result = import_albums(service, rows, progress=steps.append)
+    assert [a.title for a in service.favorite_albums] == ["Discovery"] and service.add_calls == 1
+    assert (result.added, result.duplicates) == (1, 1)
+    assert [m.reason for m in result.misses] == ["not on Fake"]
+    assert steps[0].text == "Finding the albums on Fake" and steps[-1].phase == "add"
+    assert import_albums(service, rows, dry_run=True).added == 1 and service.add_calls == 1
 
 
 def test_only_the_new_tracks_are_added_to_an_existing_playlist():

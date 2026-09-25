@@ -88,6 +88,8 @@ select, input {
   height: 2rem; padding: 0 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem;
   background: var(--surface); color: var(--text); font: inherit; font-size: 0.875rem;
 }
+.check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.875rem; }
+.check input { height: auto; }
 input[type="file"] { padding: 0 0.5rem 0 0; line-height: 2rem; }
 input[type="file"]::file-selector-button {
   height: 100%; margin-right: 0.75rem; padding: 0 0.75rem; border: 0; border-right: 1px solid var(--border);

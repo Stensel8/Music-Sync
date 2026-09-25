@@ -231,8 +231,8 @@ def test_the_account_page_sends_you_to_login_when_the_session_is_gone(tmp_path):
     assert response.status_code == 302 and str(response.location).endswith("/tidal/login")
 
 
-def transfer(client: FlaskClient):
-    return client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON)
+def transfer(client: FlaskClient, **extra):
+    return client.post("/transfer", json={"source": "spotify", "target": "tidal", **extra}, headers=JSON)
 
 
 def export(client: FlaskClient, service: str, playlist: str | None = None):
@@ -297,6 +297,21 @@ def test_import_runs_as_a_job_and_reports_what_was_not_found(client, services):
     assert csv_tracks(client.get(f"/jobs/{job_id}/unmatched.csv")) == ["Nothing"]
 
 
+def test_import_can_add_albums(client, services):
+    tidal = services.providers["tidal"]
+    assert isinstance(tidal, FakeProvider)
+    tidal.albums = [track("Discovery", "Daft Punk", ids={"tidal": "5"})]
+    response = client.post(
+        "/tidal/import",
+        data={"file": (io.BytesIO(b"Daft Punk,Discovery\n"), "albums.csv"), "albums": "1"},
+        headers=JSON,
+        content_type="multipart/form-data",
+    )
+    job = wait_for(client, response.get_json()["id"])
+    assert job["message"] == "Favourite albums: 1 matched, 0 not found; added 1"
+    assert [a.ids for a in tidal.favorite_albums] == [{"tidal": "5"}]
+
+
 @pytest.mark.parametrize(
     ("body", "message"),
     [(b"", "no tracks"), ("Björk,Jóga".encode("latin-1"), "UTF-8")],
@@ -308,6 +323,14 @@ def test_import_rejects_empty_and_non_utf8_files(client, body, message):
 
 def test_import_needs_a_file(client):
     assert client.post("/tidal/import", data={}, headers=JSON).status_code == 400
+
+
+def test_transfer_can_go_to_the_favourites(client, services):
+    job = wait_for(client, transfer(client, favorites=True).get_json()["id"])
+    tidal = services.providers["tidal"]
+    assert isinstance(tidal, FakeProvider)
+    assert job["status"] == "done" and job["message"].startswith("Liked Songs: 1 matched")
+    assert tidal.playlists_by_id == {} and [tidal.native_id(t) for t in tidal.liked] == ["1"]
 
 
 def test_transfer_copies_liked_songs_to_the_other_service(client, services):

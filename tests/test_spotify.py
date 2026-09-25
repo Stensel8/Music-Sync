@@ -6,7 +6,7 @@ import responses
 from musicsync.errors import ProviderError
 from musicsync.http import ApiClient
 from musicsync.models import Track
-from musicsync.providers.spotify import API, SpotifyProvider, parse_track
+from musicsync.providers.spotify import API, SpotifyOAuth, SpotifyProvider, parse_track
 
 from .support import ISRC_A, ISRC_B, sent_json, sent_query
 
@@ -122,6 +122,35 @@ def test_add_to_playlist_sends_the_uris_and_skips_tracks_without_an_id(spotify):
     spotify.add_to_playlist("p1", tracks)
     assert sent_json(responses.calls[0]) == {"uris": ["spotify:track:0", "spotify:track:1", "spotify:track:2"]}
     assert spotify.add_batch == 100  # sync.py sends at most this many per call
+
+
+@responses.activate
+def test_add_favorite_tracks_saves_the_uris_with_the_library_endpoint(spotify):
+    responses.put(f"{API}/me/library")
+    spotify.add_favorite_tracks([Track(t, ids={"spotify": f"spotify:track:{t}"}) for t in "12"] + [Track("No id")])
+    assert sent_query(responses.calls[0])["uris"] == ["spotify:track:1,spotify:track:2"]
+    assert "user-library-modify" in SpotifyOAuth.scopes and spotify.favorite_batch == 40
+
+
+@responses.activate
+def test_a_login_without_the_permission_to_change_liked_songs_is_told_to_log_in_again(spotify):
+    refusal = {"error": {"status": 403, "message": "Insufficient client scope"}}
+    responses.put(f"{API}/me/library", status=403, json=refusal)
+    with pytest.raises(ProviderError, match="Log in again"):
+        spotify.add_favorite_tracks([Track("A", ids={"spotify": "spotify:track:1"})])
+
+
+@responses.activate
+def test_albums_are_searched_and_saved_like_tracks(spotify):
+    album = {"type": "album", "name": "Discovery", "uri": "spotify:album:5", "artists": [{"name": "Daft Punk"}]}
+    responses.get(f"{API}/search", json={"albums": {"items": [album]}})
+    (found,) = spotify.search_albums("Discovery Daft Punk")
+    assert (found.title, found.artists, found.ids) == ("Discovery", ["Daft Punk"], {"spotify": "spotify:album:5"})
+    assert sent_query(responses.calls[0])["type"] == ["album"]
+
+    responses.put(f"{API}/me/library")
+    spotify.add_favorite_albums([found])
+    assert sent_query(responses.calls[1])["uris"] == ["spotify:album:5"]
 
 
 @responses.activate

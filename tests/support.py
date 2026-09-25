@@ -31,6 +31,12 @@ def track(
     return Track(title, [artist], album, duration_ms, isrc, ids or {})
 
 
+def _having(tracks: list[Track], query: str) -> list[Track]:
+    """The tracks whose title and artists hold every word of ``query``: a search engine in one line."""
+    words = query.lower().split()
+    return [t for t in tracks if all(word in f"{t.title} {' '.join(t.artists)}".lower() for word in words)]
+
+
 class FakeProvider(Provider):
     """An in-memory service that knows the tracks in its ``catalog``."""
 
@@ -45,6 +51,8 @@ class FakeProvider(Provider):
         self.name = name
         self.catalog = list(catalog)
         self.liked = list(liked)
+        self.albums: list[Track] = []  # the albums it knows, as Tracks with the album's title
+        self.favorite_albums: list[Track] = []
         self.readable = readable  # whether its playlists count as the user's own
         self.playlists_by_id: dict[str, tuple[str, list[Track]]] = {}
         self.descriptions: dict[str, str] = {}  # of the playlists made through create_playlist
@@ -69,8 +77,10 @@ class FakeProvider(Provider):
 
     def search(self, query: str) -> list[Track]:
         self.searches.append(query)
-        words = query.lower().split()
-        return [t for t in self.catalog if all(word in f"{t.title} {' '.join(t.artists)}".lower() for word in words)]
+        return _having(self.catalog, query)
+
+    def search_albums(self, query: str) -> list[Track]:
+        return _having(self.albums, query)
 
     def create_playlist(self, name: str, description: str = "") -> str:
         playlist_id = f"pl{len(self.playlists_by_id) + 1}"
@@ -81,6 +91,14 @@ class FakeProvider(Provider):
     def add_to_playlist(self, playlist_id: str, tracks: list[Track]) -> None:
         self.add_calls += 1
         self.playlists_by_id[playlist_id][1].extend(tracks)
+
+    def add_favorite_tracks(self, tracks: list[Track]) -> None:
+        self.add_calls += 1
+        self.liked.extend(tracks)
+
+    def add_favorite_albums(self, albums: list[Track]) -> None:
+        self.add_calls += 1
+        self.favorite_albums.extend(albums)
 
     def existing_playlist(self, name: str, *tracks: Track) -> str:
         """Test shortcut: a playlist that was already there, so it does not count as an add call."""

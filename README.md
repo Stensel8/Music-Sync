@@ -168,15 +168,10 @@ vulture && bandit -r musicsync -ll
 
 CI runs the same checks, plus `pip-audit`.
 
-## License and credits
+## Credits
 
-[AGPL-3.0](LICENSE), the license csv2tidal started with.
+Music-Sync started out as [csv2tidal](https://github.com/Nugman/csv2tidal), a small script by Roland Behme ([Nugman](https://github.com/Nugman)) that put a list of albums in your Tidal favourites. He took the idea from [a gist by RZetko](https://gist.github.com/RZetko/71801a20188e842ef03bed3b6d7a297f), and the login code from [spotify_to_tidal](https://github.com/spotify2tidal/spotify_to_tidal) by [Tim Rae](https://github.com/timrae) and [its contributors](https://github.com/spotify2tidal/spotify_to_tidal/graphs/contributors), which we still borrow ideas from. All three ran on [python-tidal](https://github.com/EbbLabs/python-tidal), started by [Thomas Amland](https://github.com/tamland) and kept alive by [morguldir](https://github.com/morguldir) and [tehkillerbee](https://github.com/tehkillerbee). [Sten Tijhuis](https://github.com/Stensel8) merged csv2tidal with his own Music-Sync prototype into this tool. The colours of the web interface come from [daisyUI](https://daisyui.com).
 
-Music-Sync grew out of several projects, and stands on the work of these people:
+## License
 
-- **[csv2tidal](https://github.com/Nugman/csv2tidal)** (2022), the script this repository started as; its commits are still at the bottom of the history. [Nugman](https://github.com/Nugman) created it and chose the license, roland.behme wrote the first script and README. It added a CSV of albums to your Tidal favourites.
-- **[RZetko's gist](https://gist.github.com/RZetko/71801a20188e842ef03bed3b6d7a297f)**, *Export your CSV albums from various music streaming services to Tidal*: the inspiration for csv2tidal.
-- **[spotify_to_tidal](https://github.com/spotify2tidal/spotify_to_tidal)** by [Tim Rae](https://github.com/timrae) and [its contributors](https://github.com/spotify2tidal/spotify_to_tidal/graphs/contributors). csv2tidal borrowed its login code, and Music-Sync its idea to check the target playlist before looking anything up.
-- **[python-tidal](https://github.com/EbbLabs/python-tidal)** (tidalapi), started by [Thomas Amland](https://github.com/tamland) and maintained by [tehkillerbee](https://github.com/tehkillerbee), earlier also by [morguldir](https://github.com/morguldir). The gist, csv2tidal and the first Music-Sync were built on it; Music-Sync now uses Tidal's official API.
-- **The first Music-Sync**, a Flask prototype that copied Spotify tracks to Tidal, and the tool it became, by [Sten Tijhuis](https://github.com/Stensel8).
-- The colours of the web interface are the *night* theme of [daisyUI](https://daisyui.com).
+[AGPL-3.0](LICENSE), the license Roland chose for csv2tidal.

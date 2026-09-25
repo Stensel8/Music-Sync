@@ -4,12 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Music-Sync{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', filename='logo.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="{{ url_for('pages.dashboard') }}">Music-Sync</a>
+    <a class="brand" href="{{ url_for('pages.dashboard') }}">
+      <img src="{{ url_for('static', filename='logo.svg') }}" alt="" width="28" height="28">Music-Sync
+    </a>
     <nav>
       <a href="{{ url_for('service.account', service='spotify') }}">Spotify</a>
       <a href="{{ url_for('service.account', service='tidal') }}">Tidal</a>

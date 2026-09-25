@@ -189,6 +189,19 @@ $('transfer-form')?.addEventListener('submit', (e) => {
   );
 });
 
+// The setup page: copy the redirect URI or the path of the settings file with one click.
+for (const button of document.querySelectorAll('[data-copy]')) {
+  button.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(button.dataset.copy);
+      button.textContent = 'Copied';
+    } catch {
+      button.textContent = 'Select it and copy it yourself';
+    }
+    setTimeout(() => (button.textContent = 'Copy'), 2000);
+  });
+}
+
 // The account page: an export button for the liked songs and one per playlist.
 for (const button of document.querySelectorAll('[data-export]')) {
   button.addEventListener('click', () => exportFrom(button.dataset.service, button.dataset.export));

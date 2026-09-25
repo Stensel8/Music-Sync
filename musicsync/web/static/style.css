@@ -42,7 +42,7 @@ hr { max-width: 48rem; margin: 2rem 0; border: 0; border-top: 1px solid var(--bo
 }
 .topbar nav { display: flex; gap: 0.25rem; }
 .brand, .topbar nav a { padding: 0.5rem 0.75rem; border-radius: 0.5rem; }
-.brand { font-size: 1.25rem; }
+.brand { display: flex; align-items: center; gap: 0.6rem; font-size: 1.25rem; }
 .topbar nav a { font-size: 0.875rem; }
 .brand:hover, .topbar nav a:hover { background: var(--line); }
 .page { max-width: 72rem; margin: 2rem auto 0; padding: 0 1rem 3rem; }
@@ -118,6 +118,7 @@ progress:not([value])::-moz-progress-bar { background: transparent; }
 /* messages */
 .alert { padding: 1rem; border: 1px solid var(--border); border-radius: 1rem; font-size: 0.875rem; }
 .alert p + p { margin-top: 0.25rem; }
+.alert.ok { border-color: oklch(78.45% 0.1325 181.91 / 0.4); background: oklch(78.45% 0.1325 181.91 / 0.12); }
 .alert.warn { border-color: oklch(83.24% 0.1396 82.95 / 0.4); background: oklch(83.24% 0.1396 82.95 / 0.12); }
 .alert.error { border-color: oklch(71.79% 0.1703 13.12 / 0.4); background: oklch(71.79% 0.1703 13.12 / 0.12); }
 .list { margin: 0; padding-left: 1.25rem; list-style: disc; font-size: 0.875rem; }
@@ -151,10 +152,23 @@ progress:not([value])::-moz-progress-bar { background: transparent; }
 .error { color: var(--error); }
 .icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
 
+/* the setup page: numbered steps, each in a card */
+.setup { max-width: 48rem; }
+.setup > h1 { margin-bottom: 0.5rem; }
+.setup > .alert { margin-top: 1.5rem; justify-content: space-between; }
+.setup-steps { display: grid; gap: 1rem; margin: 1.5rem 0 0; padding: 0; list-style: none; counter-reset: step; }
+.setup-steps > li { gap: 0.75rem; counter-increment: step; }
+.setup-steps h2::before { content: counter(step) ". "; color: var(--accent); }
+.setup-steps em, .setup-steps strong { font-style: normal; font-weight: 600; }
+.copy { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.copy code, .setup pre { padding: 0.35rem 0.6rem; border-radius: 0.5rem; background: var(--page); font-size: 0.875rem; }
+.setup pre { margin: 0; padding: 0.75rem 1rem; overflow-x: auto; }
+
 /* login and error pages */
 .login { display: flex; align-items: center; justify-content: center; min-height: 70vh; }
 .login > div { width: 100%; max-width: 24rem; }
 .login h1 { margin-bottom: 0.5rem; text-align: center; font-size: 2.25rem; font-weight: 700; }
+.login .logo { display: block; margin: 0 auto 1rem; }
 .login .tagline { margin-bottom: 2rem; text-align: center; }
 .login .card { gap: 1rem; }
 .notice { display: flex; flex-direction: column; align-items: flex-start; gap: 1.5rem; max-width: 36rem; margin: 0 auto; }

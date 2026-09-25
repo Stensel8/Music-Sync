@@ -10,6 +10,11 @@ from pathlib import Path
 from .errors import ConfigError
 
 SERVICES = ("spotify", "tidal")
+# Where each service's developer apps are made.
+DEVELOPER_DASHBOARDS = {
+    "spotify": "https://developer.spotify.com/dashboard",
+    "tidal": "https://developer.tidal.com/dashboard",
+}
 TEMPLATE = Path(__file__).with_name("config_template.toml")
 
 
@@ -45,6 +50,11 @@ def ensure_config_file() -> bool:
     return True
 
 
+def default_redirect_uri(service: str) -> str:
+    """Where a service sends you back after logging in, unless the settings say otherwise."""
+    return f"http://127.0.0.1:8888/{service}/callback"
+
+
 def _locale_country() -> str:
     """The country of the system locale ("nl_NL.UTF-8" gives "NL"), else "US"."""
     for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
@@ -70,12 +80,16 @@ class Settings:
     def is_configured(self, service: str) -> bool:
         return bool(self.services.get(service, ServiceConfig()).client_id)
 
+    def redirect_uri(self, service: str) -> str:
+        return self.services.get(service, ServiceConfig()).redirect_uri or default_redirect_uri(service)
+
     def require(self, service: str) -> ServiceConfig:
         """The credentials of ``service``, or a ConfigError that says how to set them."""
         if not self.is_configured(service):
             raise ConfigError(
-                f"{service.title()} client ID missing. Set {service.upper()}_CLIENT_ID or add "
-                f"client_id under [{service}] in {config_path()} (see the README)."
+                f"{service.title()} client ID missing. Create an app at {DEVELOPER_DASHBOARDS[service]} and put "
+                f"its Client ID under [{service}] in {config_path()}, or set {service.upper()}_CLIENT_ID "
+                "(see Setup in the README)."
             )
         return self.services[service]
 
@@ -98,9 +112,7 @@ def load_settings(path: Path | None = None, env: Mapping[str, str] | None = None
             client_id=env.get(f"{prefix}_CLIENT_ID") or section.get("client_id", ""),
             client_secret=env.get(f"{prefix}_CLIENT_SECRET") or section.get("client_secret", ""),
             # The web interface listens on 8888; the CLI login borrows the same address.
-            redirect_uri=env.get(f"{prefix}_REDIRECT_URI")
-            or section.get("redirect_uri")
-            or f"http://127.0.0.1:8888/{name}/callback",
+            redirect_uri=env.get(f"{prefix}_REDIRECT_URI") or section.get("redirect_uri") or default_redirect_uri(name),
         )
     country = env.get("MUSICSYNC_COUNTRY") or data.get("country") or _locale_country()
     return Settings(services, country.upper())

@@ -86,6 +86,6 @@ def test_a_running_app_picks_up_changes_to_the_settings_file():
 
 
 def test_require_explains_how_to_set_a_service_up():
-    with pytest.raises(ConfigError, match="SPOTIFY_CLIENT_ID"):
+    with pytest.raises(ConfigError, match=r"developer\.spotify\.com/dashboard.*SPOTIFY_CLIENT_ID"):
         Settings().require("spotify")
     assert Settings({"tidal": ServiceConfig("id")}).require("tidal").client_id == "id"

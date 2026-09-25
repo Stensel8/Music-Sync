@@ -8,7 +8,7 @@ from urllib.parse import quote
 from flask import Blueprint, Response, abort, current_app, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.wrappers import Response as WerkzeugResponse
 
-from ..config import SERVICES, config_path
+from ..config import DEVELOPER_DASHBOARDS, SERVICES, config_path
 from ..csvio import parse_csv, slug, write_csv
 from ..errors import CsvError, NotLoggedIn, ProviderError
 from ..oauth import pkce_pair
@@ -32,15 +32,26 @@ def _jobs() -> JobManager:
 def _accounts() -> list[dict]:
     """What the templates need to know about each service."""
     services = _services()
-    return [
-        {
-            "name": name,
-            "label": name.title(),
-            "configured": services.settings.is_configured(name),
-            "connected": services.store.load(name) is not None,
-        }
-        for name in SERVICES
-    ]
+    accounts = []
+    for name in SERVICES:
+        configured = services.settings.is_configured(name)
+        accounts.append(
+            {
+                "name": name,
+                "label": name.title(),
+                "configured": configured,
+                # A login made before the client ID was taken out of the settings is of no use any more.
+                "connected": configured and services.store.load(name) is not None,
+            }
+        )
+    return accounts
+
+
+def _to_setup(service: str) -> WerkzeugResponse | None:
+    """Where to go instead when ``service`` has no client ID yet: the page that says how to get one."""
+    if _services().settings.is_configured(service):
+        return None
+    return redirect(url_for("service.setup", service=service))
 
 
 def _start(kind: str, title: str, work: Callable[[Job], str]) -> tuple[Response, int]:
@@ -73,7 +84,7 @@ def dashboard() -> str:
 
 @pages.get("/login")
 def login_page() -> str:
-    return render_template("login.html", accounts=_accounts(), config_file=config_path())
+    return render_template("login.html", accounts=_accounts())
 
 
 @pages.post("/transfer")
@@ -120,8 +131,29 @@ def job_download(job_id: str) -> Response:
 # --- one service: login, account, export, import --------------------------------------------------
 
 
+@service_pages.get("/setup")
+def setup(service: str) -> str | WerkzeugResponse:
+    """How to make a developer app and put its Client ID in the settings. ``?check`` is the "done" button."""
+    settings = _services().settings
+    configured = settings.is_configured(service)
+    if configured and "check" in request.args:
+        return redirect(url_for("service.login", service=service))
+    return render_template(
+        "setup.html",
+        service=service,
+        label=service.title(),
+        configured=configured,
+        checked="check" in request.args,
+        dashboard=DEVELOPER_DASHBOARDS[service],
+        redirect_uri=settings.redirect_uri(service),
+        config_file=config_path(),
+    )
+
+
 @service_pages.get("/login")
 def login(service: str) -> WerkzeugResponse:
+    if elsewhere := _to_setup(service):
+        return elsewhere
     verifier, challenge = pkce_pair()
     state = secrets.token_urlsafe(16)
     session[f"{service}_oauth"] = {"verifier": verifier, "state": state}  # needed again on the way back
@@ -144,6 +176,8 @@ def callback(service: str) -> WerkzeugResponse:
 
 @service_pages.get("/account")
 def account(service: str) -> str | WerkzeugResponse:
+    if elsewhere := _to_setup(service):
+        return elsewhere
     try:
         playlists = _services().provider(service).playlists()
     except NotLoggedIn:

@@ -4,6 +4,7 @@
 {% block content %}
 <div class="login">
   <div>
+    <img class="logo" src="{{ url_for('static', filename='logo.svg') }}" alt="" width="64" height="64">
     <h1>Music-Sync</h1>
     <p class="muted small tagline">Move your music between Spotify, Tidal and CSV</p>
 
@@ -12,11 +13,8 @@
 
       {% for a in accounts %}
         {% if not a.configured %}
-          <div class="alert warn">
-            <p class="strong">{{ a.label }}: client ID missing.</p>
-            <p>Create a developer app (see the README) and put its details under <code>[{{ a.name }}]</code> in
-              <code>{{ config_file }}</code>. Then reload this page.</p>
-          </div>
+          <a href="{{ url_for('service.setup', service=a.name) }}" class="btn big wide">Set up {{ a.label }}</a>
+          <p class="muted tiny center">{{ a.label }} has no client ID yet. This takes a few minutes, once.</p>
         {% else %}
           <a href="{{ url_for('service.login', service=a.name) }}" class="btn big wide {{ a.name }}">
             <svg class="icon" viewBox="0 0 24 24">

@@ -5,6 +5,7 @@ import time
 import pytest
 from flask.testing import FlaskClient
 
+from musicsync.config import Settings, config_path
 from musicsync.csvio import parse_csv
 from musicsync.errors import ApiError
 from musicsync.models import Track
@@ -67,17 +68,50 @@ def test_the_pages_load_nothing_from_other_sites(client, services):
     assert "javascript" in client.get("/static/app.js").mimetype
 
 
-def test_a_service_without_a_client_id_says_where_to_put_it(tmp_path):
-    from musicsync.config import Settings, config_path
+@pytest.fixture
+def unconfigured(tmp_path) -> FlaskClient:
+    """No client IDs at all, but an old Spotify login still in the token file."""
+    services = FakeServices(tmp_path, Settings())
+    services.store.save("spotify", Token("A", "R", time.time() + 100))
+    return create_app(services, secret_key="k").test_client()
 
-    page = (
-        create_app(FakeServices(tmp_path, Settings()), secret_key="k")
-        .test_client()
-        .get("/login")
-        .get_data(as_text=True)
+
+def test_a_service_without_a_client_id_leads_to_the_setup_page(unconfigured):
+    page = unconfigured.get("/login").get_data(as_text=True)
+    assert "Set up Spotify" in page and "/spotify/setup" in page and "with Spotify" not in page
+    for path in ("/spotify/login", "/spotify/account", "/tidal/account"):
+        response = unconfigured.get(path)
+        assert response.status_code == 302 and str(response.location).endswith(path.rsplit("/", 1)[0] + "/setup")
+
+
+def test_an_old_login_without_a_client_id_does_not_count_as_connected(unconfigured):
+    page = unconfigured.get("/").get_data(as_text=True)
+    assert "Connected" not in page and "Client ID missing" in page and "/spotify/setup" in page
+    assert '<option value="spotify">' not in page  # it cannot be picked for an export or transfer
+
+
+@pytest.mark.parametrize(
+    ("service", "dashboard", "secret"),
+    [
+        ("spotify", "https://developer.spotify.com/dashboard", False),
+        ("tidal", "https://developer.tidal.com/dashboard", True),
+    ],
+)
+def test_the_setup_page_says_where_to_get_the_client_id_and_where_to_put_it(unconfigured, service, dashboard, secret):
+    page = unconfigured.get(f"/{service}/setup").get_data(as_text=True)
+    assert f'href="{dashboard}"' in page and 'rel="noopener noreferrer"' in page
+    assert f"http://127.0.0.1:8888/{service}/callback" in page and str(config_path()) in page
+    assert f"[{service}]" in page and ("client_secret =" in page) is secret
+
+
+def test_the_done_button_logs_in_once_the_client_id_is_there(tmp_path, unconfigured):
+    assert "no Spotify client ID in the settings file yet" in unconfigured.get("/spotify/setup?check=1").get_data(
+        as_text=True
     )
-    assert "client ID missing" in page and "with Spotify" not in page
-    assert "[spotify]" in page and "[tidal]" in page and str(config_path()) in page
+    configured = create_app(FakeServices(tmp_path), secret_key="k").test_client()
+    response = configured.get("/spotify/setup?check=1")
+    assert response.status_code == 302 and str(response.location).endswith("/spotify/login")
+    assert "has a client ID" in configured.get("/spotify/setup").get_data(as_text=True)
 
 
 def test_only_our_own_host_names_are_answered(client):

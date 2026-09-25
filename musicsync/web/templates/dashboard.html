@@ -26,7 +26,7 @@
     {% elif a.configured %}
       <a class="btn primary wide" href="{{ url_for('service.login', service=a.name) }}">Connect</a>
     {% else %}
-      <a class="btn wide" href="{{ url_for('pages.login_page') }}">How do I set this up?</a>
+      <a class="btn wide" href="{{ url_for('service.setup', service=a.name) }}">How do I set this up?</a>
     {% endif %}
   </section>
   {% endfor %}

@@ -148,7 +148,7 @@ Files must be UTF-8 (the BOM from Excel is fine). The column names of other expo
 music-sync web              # then open http://127.0.0.1:8888
 ```
 
-Export, import and transfer in a browser. It uses the same logins as the command line.
+Export, import and transfer in a browser. It uses the same logins as the command line. For a service without a client ID it shows a setup page instead: where to make the developer app, what to fill in, and where to paste the ID.
 
 Every export, import and transfer runs in the background. The page shows which step it is in, how far along that step is, how long it has taken and about how long it will still take, and which tracks were not found so far. The browser tab shows the percentage too, so you can do something else meanwhile. An export downloads its CSV as soon as it is ready.
 

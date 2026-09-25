@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Set up {{ label }} — Music-Sync{% endblock %}
+
+{% block content %}
+<div class="setup">
+  <h1>Set up {{ label }}</h1>
+  <p class="muted">Music-Sync talks to {{ label }} through a developer app of your own. Making one takes a few minutes, and you only do it once.</p>
+
+  {% if configured %}
+  <div class="alert ok row">
+    <span>{{ label }} has a client ID.</span>
+    <a class="btn primary" href="{{ url_for('service.login', service=service) }}">Log in with {{ label }}</a>
+  </div>
+  {% elif checked %}
+  <div class="alert warn">There is no {{ label }} client ID in the settings file yet. Did you save the file?</div>
+  {% endif %}
+
+  <ol class="setup-steps">
+    <li class="card">
+      <h2>Create an app</h2>
+      <p>Open the {{ label }} developer dashboard, log in with your {{ label }} account and click
+        <strong>{{ 'Create app' if service == 'spotify' else 'Create New App' }}</strong>.</p>
+      {% if service == 'spotify' %}
+      <p class="muted small">Spotify only lets apps of Premium accounts use its API. Without Premium, someone who has it can make the app and add you under <em>User Management</em>.</p>
+      {% endif %}
+      <p><a class="btn primary" href="{{ dashboard }}" target="_blank" rel="noopener noreferrer">Open the {{ label }} developer dashboard ↗</a></p>
+    </li>
+
+    <li class="card">
+      <h2>Fill it in</h2>
+      <p>Name and description can be anything. As redirect URI, use exactly:</p>
+      <div class="copy"><code>{{ redirect_uri }}</code><button class="btn tiny" type="button" data-copy="{{ redirect_uri }}">Copy</button></div>
+      {% if service == 'spotify' %}
+      <p>Under <em>Which API/SDKs are you planning to use?</em> tick <strong>Web API</strong> and nothing else.</p>
+      {% else %}
+      <p>Allow the scopes <code>collection.read</code>, <code>collection.write</code>, <code>playlists.read</code>, <code>playlists.write</code> and <code>user.read</code>.</p>
+      {% endif %}
+    </li>
+
+    <li class="card">
+      <h2>Copy the {{ 'Client ID' if service == 'spotify' else 'Client ID and Client Secret' }}</h2>
+      {% if service == 'spotify' %}
+      <p>Save the app, open its <em>Settings</em> and copy the <strong>Client ID</strong>. The client secret is not needed.</p>
+      {% else %}
+      <p>Copy the <strong>Client ID</strong> and the <strong>Client Secret</strong> of the app. The secret lets Music-Sync search Tidal's catalogue.</p>
+      {% endif %}
+    </li>
+
+    <li class="card">
+      <h2>Paste it into your settings file</h2>
+      <p>Open this file in a text editor. It is in a hidden folder, so open it by its path:</p>
+      <div class="copy"><code>{{ config_file }}</code><button class="btn tiny" type="button" data-copy="{{ config_file }}">Copy</button></div>
+      <p>Put what you copied between the quotes under <code>[{{ service }}]</code>, and save the file:</p>
+      <pre><code>[{{ service }}]
+client_id = "paste the Client ID here"{% if service == 'tidal' %}
+client_secret = "paste the Client Secret here"{% endif %}</code></pre>
+    </li>
+
+    <li class="card">
+      <h2>Come back here</h2>
+      <p>Music-Sync notices the saved file by itself; there is no need to restart it.</p>
+      <p><a class="btn primary" href="{{ url_for('service.setup', service=service, check=1) }}">Done: log in with {{ label }}</a></p>
+    </li>
+  </ol>
+</div>
+{% endblock %}

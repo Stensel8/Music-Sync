@@ -127,6 +127,10 @@ class SpotifyProvider(Provider):
     def search_albums(self, query: str) -> list[Track]:
         return self.search(query, "album")
 
+    def album_tracks(self, album_id: str) -> list[Track]:
+        pages = self._pages(f"/albums/{album_id.rsplit(':', 1)[-1]}/tracks")  # the id from a URI
+        return [track for page in pages for item in page.get("items", []) if (track := parse_track(item))]
+
     def lookup_isrcs(self, isrcs: Collection[str]) -> dict[str, list[Track]]:
         # Spotify has no bulk ISRC lookup, so this is one search per code.
         return {isrc: found for isrc in isrcs if (found := self.search(f"isrc:{isrc}"))}

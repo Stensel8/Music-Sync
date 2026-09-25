@@ -154,6 +154,12 @@ def test_albums_are_searched_and_saved_like_tracks(spotify):
 
 
 @responses.activate
+def test_album_tracks_takes_the_id_out_of_the_uri(spotify):
+    responses.get(f"{API}/albums/5/tracks", json={"items": [sp_track("One", "spotify:track:1")], "next": None})
+    assert [t.title for t in spotify.album_tracks("spotify:album:5")] == ["One"]
+
+
+@responses.activate
 def test_find_prefers_the_isrc_and_falls_back_to_a_text_search(spotify):
     responses.get(f"{API}/search", json={"tracks": {"items": [sp_track("Other Song", "spotify:track:9")]}})
     by_isrc = spotify.find(Track("Song", ["Artist"], isrc=ISRC_A))

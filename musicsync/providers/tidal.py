@@ -153,6 +153,10 @@ class TidalProvider(Provider):
     def search_albums(self, query: str) -> list[Track]:
         return self.search(query, "albums")
 
+    def album_tracks(self, album_id: str) -> list[Track]:
+        pages = self._pages(self.catalog, f"/albums/{album_id}/relationships/items")
+        return self._tracks_by_id([track_id for page in pages for track_id in _track_ids(page)])
+
     def create_playlist(self, name: str, description: str = "") -> str:
         # accessType is left out so the playlist gets Tidal's default (private) visibility.
         body = {"data": {"type": "playlists", "attributes": {"name": name, "description": description}}}

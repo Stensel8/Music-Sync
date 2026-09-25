@@ -9,7 +9,7 @@ from musicsync.csvio import parse_csv
 from musicsync.errors import ApiError
 from musicsync.models import Track
 from musicsync.oauth import Token
-from musicsync.sync import Step
+from musicsync.sync import Miss, Step
 from musicsync.web import create_app
 from musicsync.web.jobs import Job
 
@@ -249,7 +249,7 @@ def test_import_runs_as_a_job_and_reports_what_was_not_found(client, services):
     job_id = response.get_json()["id"]
     job = wait_for(client, job_id)
     assert job["status"] == "done" and job["message"] == "Mix: 1 matched, 1 not found; added 1"
-    assert job["unmatched"] == [{"track": "Nobody - Nothing", "closest": None, "score": None}]
+    assert job["unmatched"] == [{"track": "Nobody - Nothing", "reason": "not on Tidal", "closest": None}]
     assert (job["found"], job["not_found"], job["phase"], job["done"], job["total"]) == (1, 1, "add", 1, 1)
     assert job["phases"] == ["match", "check", "add"] and job["eta"] is None
 
@@ -334,9 +334,9 @@ def test_a_track_not_found_comes_with_what_came_closest(client, services):
     job = wait_for(
         client, client.post("/transfer", json={"source": "spotify", "target": "tidal"}, headers=JSON).get_json()["id"]
     )
-    (miss,) = job["unmatched"]
-    assert miss["track"] == "Artist B - Song B (Live)" and miss["closest"] == "Artist B - Song B"
-    assert 0 < miss["score"] < 0.8
+    assert job["unmatched"] == [
+        {"track": "Artist B - Song B (Live)", "reason": "only another version", "closest": "Artist B - Song B"}
+    ]
 
 
 def test_a_running_job_says_what_it_is_doing():
@@ -344,8 +344,9 @@ def test_a_running_job_says_what_it_is_doing():
     job = Job("id", "transfer", "Transfer from Spotify to Tidal")
     job.progress(Step("read", "Reading Liked Songs from Spotify", 10, None))
     assert (job.phase, job.done, job.total) == ("read", 10, None)
-    job.progress(Step("match", "Finding the tracks on Tidal", 1, 3, Track("A", ["X"]), None))
-    job.progress(Step("match", "Finding the tracks on Tidal", 2, 3, Track("B", ["X"]), None))
+    for done, title in enumerate("AB", start=1):
+        track = Track(title, ["X"])
+        job.progress(Step("match", "Finding the tracks on Tidal", done, 3, track, None, Miss(track, "not on Tidal")))
     shown = job.to_json()
     assert (shown["phase"], shown["done"], shown["total"]) == ("match", 2, 3)
     assert shown["text"] == "Finding the tracks on Tidal"

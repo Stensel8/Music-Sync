@@ -6,6 +6,7 @@ from itertools import batched
 from typing import Literal
 
 from .errors import ApiError, ProviderError
+from .matching import rejection
 from .models import Match, PlaylistInfo, Track
 from .providers.base import UNLOOKUPABLE, Provider
 
@@ -15,6 +16,15 @@ CHUNK = 20  # tracks per bulk ISRC lookup: what Tidal takes in one request
 
 # Reading the source, finding each track on the target, checking what the target playlist already has, adding.
 type Phase = Literal["read", "match", "check", "add"]
+
+
+@dataclass(frozen=True, slots=True)
+class Miss:
+    """A track that was not found, why, and what came closest when that is worth showing."""
+
+    track: Track
+    reason: str  # for people: "score too low for a match (0.75, needs 0.80)"
+    closest: Match | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +38,7 @@ class Step:
     total: int | None
     track: Track | None = None  # "match": the track just looked up
     match: Match | None = None  # "match": what it was found as, None when it was not found
-    closest: Match | None = None  # "match": for a track that was not found, the candidate that came closest
+    miss: Miss | None = None  # "match": why it was not found
 
 
 type Progress = Callable[[Step], None]
@@ -46,13 +56,15 @@ class ImportResult:
     playlist_name: str
     playlist_id: str | None = None
     matched: list[Match] = field(default_factory=list)
-    unmatched: list[Track] = field(default_factory=list)
-    # For unmatched tracks that had a candidate below the threshold: the track and that candidate.
-    near_misses: list[tuple[Track, Match]] = field(default_factory=list)
+    misses: list[Miss] = field(default_factory=list)  # the tracks that were not found
     duplicates: int = 0  # repeated within the input
     already_there: int = 0  # already in the target playlist
     added: int = 0
     dry_run: bool = False
+
+    @property
+    def unmatched(self) -> list[Track]:
+        return [miss.track for miss in self.misses]
 
     def summary(self) -> str:
         """One line: what was found, and what was (or would be) added."""
@@ -123,40 +135,54 @@ def select_tracks(
     return [(name, tracks) for name, tracks in found if tracks]
 
 
+def _miss(track: Track, closest: Match | None, provider: Provider, min_score: float) -> Miss:
+    """Why ``track`` was not found, given the candidate that came closest (if any)."""
+    if closest is None:
+        return Miss(track, f"not on {provider.label}")
+    match rejection(track, closest.track):
+        case "other song":  # only the artist is the same: that candidate says nothing
+            return Miss(track, f"only other songs on {provider.label}")
+        case "other version":
+            return Miss(track, "only another version", closest)
+        case _:
+            return Miss(track, f"score too low for a match ({closest.score:.2f}, needs {min_score:.2f})", closest)
+
+
 def resolve_tracks(
     provider: Provider,
     tracks: list[Track],
     min_score: float = 0.8,
     progress: Progress | None = None,
-) -> tuple[list[Match], list[Track], list[tuple[Track, Match]]]:
-    """Look every track up on ``provider``. Returns the matches, the tracks that were not found, and the
-    near misses: those of the tracks not found that had a candidate, with that candidate."""
+) -> tuple[list[Match], list[Miss]]:
+    """Look every track up on ``provider``. Returns the matches, and the tracks that were not found with why."""
     matches: list[Match] = []
-    unmatched: list[Track] = []
-    near_misses: list[tuple[Track, Match]] = []
+    misses: list[Miss] = []
     text = f"Finding the tracks on {provider.label}"
     for chunk in batched(tracks, CHUNK, strict=False):
         # One request for the ISRCs of a whole chunk instead of one per track.
         isrcs = {track.isrc.upper() for track in chunk if track.isrc and not provider.native_id(track)}
         known = provider.lookup_isrcs(isrcs) if isrcs else {}
         for track in chunk:
+            match: Match | None = None
+            miss: Miss | None = None
             try:
                 found = provider.find(track, known)
             except ApiError as exc:
                 if exc.status not in UNLOOKUPABLE:
                     raise
-                found = None
-            match = found if found and found.score >= min_score else None
+                miss = Miss(track, f"{provider.label} could not look it up ({exc})")
+            else:
+                if found and found.score >= min_score:
+                    match = found
+                else:
+                    miss = _miss(track, found, provider, min_score)
             if match:
                 matches.append(match)
-            else:
-                unmatched.append(track)
-                if found:
-                    near_misses.append((track, found))
+            if miss:
+                misses.append(miss)
             if progress:
-                closest = None if match else found
-                progress(Step("match", text, len(matches) + len(unmatched), len(tracks), track, match, closest))
-    return matches, unmatched, near_misses
+                progress(Step("match", text, len(matches) + len(misses), len(tracks), track, match, miss))
+    return matches, misses
 
 
 def import_tracks(
@@ -170,8 +196,8 @@ def import_tracks(
     progress: Progress | None = None,
 ) -> ImportResult:
     """Add ``tracks`` to the playlist called ``playlist`` (created if missing), skipping what is already in it."""
-    matches, unmatched, near_misses = resolve_tracks(provider, tracks, min_score, progress)
-    result = ImportResult(playlist_name=playlist, unmatched=unmatched, near_misses=near_misses, dry_run=dry_run)
+    matches, misses = resolve_tracks(provider, tracks, min_score, progress)
+    result = ImportResult(playlist_name=playlist, misses=misses, dry_run=dry_run)
 
     # Different source tracks can resolve to the same track on the target; keep the first of each.
     unique: dict[str, Match] = {}

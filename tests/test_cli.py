@@ -122,7 +122,7 @@ def test_a_transfer_shows_each_step_and_what_came_closest(tmp_path, capsys):
         "Finding the tracks on Tidal  [####################]  2/2  1 found, 1 not found",
         "Adding to Liked Songs (from Spotify) on Tidal  [####################]  1/1",
     ]
-    assert "Artist B - Song B (Live)  (closest: Artist B - Song B, score 0.75)" in captured.out
+    assert "  Artist B - Song B (Live): only another version; closest: Artist B - Song B" in captured.out
 
 
 def test_on_a_terminal_the_line_is_redrawn_in_place(tmp_path, capsys, monkeypatch):

@@ -37,14 +37,21 @@ _NOISE = re.compile(
 )
 _APOSTROPHES = str.maketrans(dict.fromkeys("\u2019\u2018`\u00b4", "'"))  # curly quotes, grave, acute
 # Words that services abbreviate differently: "Pt. 2" is "Part 2", "Rock 'n' Roll" is "Rock and Roll".
-_SPELLINGS = {"pt": "part", "vol": "volume", "n": "and"}
-# What joins several artists in one name: "Macklemore & Ryan Lewis", "Nicky Jam x J Balvin".
-_ARTIST_JOINS = re.compile(r"\s*(?:[,;&+]|\bx\b|\bvs\b\.?|\bfeat\b\.?|\bft\b\.?|\bfeaturing\b|\bwith\b)\s*")
+# Roman numerals are numbers too, except "i", "v" and "x", which are also words and letters.
+_SPELLINGS = {"pt": "part", "vol": "volume", "n": "and"} | dict(
+    zip(["ii", "iii", "iv", "vi", "vii", "viii", "ix"], ["2", "3", "4", "6", "7", "8", "9"], strict=True)
+)
+# What joins several artists in one name: "Macklemore & Ryan Lewis", "Nicky Jam x J Balvin",
+# "Tom Petty and the Heartbreakers" (where the other service may have just "Tom Petty").
+_ARTIST_JOINS = re.compile(r"\s*(?:[,;&+]|\bx\b|\band\b|\bvs\b\.?|\bfeat\b\.?|\bft\b\.?|\bfeaturing\b|\bwith\b)\s*")
 
 # Weights of the three signals; they add up to 1.
 TITLE_WEIGHT, ARTIST_WEIGHT, DURATION_WEIGHT = 0.5, 0.4, 0.1
-# Below this the artist is simply someone else, whatever the title says.
-MIN_ARTIST_SCORE = 0.6
+# Below this the artist is simply someone else, whatever the title says. Names that share a few letters,
+# like "Roy Blair" and "Radio Blazers" (0.64), stay under it.
+MIN_ARTIST_SCORE = 0.7
+# From this on two titles are the same song, whatever version each one is.
+SAME_SONG = 0.6
 
 
 def _fold(text: str) -> str:
@@ -113,8 +120,20 @@ def _tags(title: str) -> frozenset[str]:
     return frozenset(tag for tag, pattern in _TAGS.items() if pattern.search(version))
 
 
+def _numbers(title: str) -> frozenset[int]:
+    return frozenset(int(number) for number in re.findall(r"\d+", _full(title)))
+
+
+def _title_similarity(wanted: str, candidate: str) -> float:
+    """How alike two titles are, whatever version each one is. Titles with other numbers are other songs:
+    "Part 1" and "Part 2", "Song 5" and "Song 55". A number on one side only, like a year, is no matter."""
+    alike = max(similarity(normalize(wanted), normalize(candidate)), similarity(_full(wanted), _full(candidate)))
+    ours, theirs = _numbers(wanted), _numbers(candidate)
+    return alike if ours <= theirs or theirs <= ours else alike * 0.5
+
+
 def _title_score(wanted: str, candidate: str) -> float:
-    title = max(similarity(normalize(wanted), normalize(candidate)), similarity(_full(wanted), _full(candidate)))
+    title = _title_similarity(wanted, candidate)
     return title if _tags(wanted) == _tags(candidate) else title * 0.5
 
 
@@ -161,6 +180,16 @@ def score(wanted: Track, candidate: Track) -> float:
     if artist < MIN_ARTIST_SCORE:
         return 0.0
     return round(TITLE_WEIGHT * title + ARTIST_WEIGHT * artist + DURATION_WEIGHT * duration, 4)
+
+
+def rejection(wanted: Track, candidate: Track) -> str:
+    """Why ``candidate``, which scored too low, is not ``wanted``: "other song" (only the artist is the
+    same), "other version" (live, remix and the like) or "low score" (close, but not close enough)."""
+    if _title_similarity(wanted.title, candidate.title) < SAME_SONG:
+        return "other song"
+    if _tags(wanted.title) != _tags(candidate.title):
+        return "other version"
+    return "low score"
 
 
 def rank(wanted: Track, candidate: Track) -> tuple[float, float, float]:

@@ -12,10 +12,10 @@ from . import __version__
 from .config import SERVICES, config_path, ensure_config_file
 from .csvio import read_tracks, slug, write_tracks
 from .errors import ConfigError, MusicSyncError, ProviderError
-from .models import Match, Track
+from .models import Track
 from .providers.base import Provider
 from .services import Services
-from .sync import LIKED, Progress, Step, import_tracks, remaining, select_tracks
+from .sync import LIKED, Miss, Progress, Step, import_tracks, remaining, select_tracks
 
 type Handler = Callable[[argparse.Namespace, Services], int]
 
@@ -87,25 +87,20 @@ def _progress(quiet: bool) -> Progress | None:
     return None if quiet else _ProgressLine()
 
 
-def _closest(match: Match | None) -> str:
-    return f"  (closest: {match.track}, score {match.score:.2f})" if match else ""
-
-
-def _report_unmatched(unmatched: list[Track], near_misses: list[tuple[Track, Match]], path: str | None) -> None:
-    """Show the tracks that were not found, with what came closest, or save them all when ``--unmatched``
-    was given."""
-    if not unmatched:
+def _report_unmatched(misses: list[Miss], path: str | None) -> None:
+    """Show the tracks that were not found and why, or save them all when ``--unmatched`` was given."""
+    if not misses:
         return
     if path:
-        write_tracks(path, unmatched)
-        print(f"{len(unmatched)} tracks without a match written to {path}")
+        write_tracks(path, [miss.track for miss in misses])
+        print(f"{len(misses)} tracks without a match written to {path}")
         return
-    closest = {id(track): match for track, match in near_misses}  # the same objects as in ``unmatched``
     print("\nNot found:")
-    for track in unmatched[:10]:
-        print(f"  {track}{_closest(closest.get(id(track)))}")
-    if len(unmatched) > 10:
-        print(f"  ... and {len(unmatched) - 10} more (use --unmatched FILE to save them all)")
+    for miss in misses[:10]:
+        closest = f"; closest: {miss.closest.track}" if miss.closest else ""
+        print(f"  {miss.track}: {miss.reason}{closest}")
+    if len(misses) > 10:
+        print(f"  ... and {len(misses) - 10} more (use --unmatched FILE to save them all)")
 
 
 # --- commands ---------------------------------------------------------------------------------------
@@ -179,7 +174,7 @@ def cmd_import(args: argparse.Namespace, services: Services) -> int:
         progress=_progress(args.quiet),
     )
     print(result.summary())
-    _report_unmatched(result.unmatched, result.near_misses, args.unmatched)
+    _report_unmatched(result.misses, args.unmatched)
     return 0
 
 
@@ -190,8 +185,7 @@ def cmd_transfer(args: argparse.Namespace, services: Services) -> int:
         raise ProviderError("--to-playlist cannot be combined with --all.")
     source, target = services.provider(args.source), services.provider(args.target)
     progress = _progress(args.quiet)
-    unmatched: list[Track] = []
-    near_misses: list[tuple[Track, Match]] = []
+    misses: list[Miss] = []
     selected = select_tracks(source, liked=args.liked, playlist=args.playlist, on_skip=_warn, progress=progress)
     for name, tracks in selected:
         destination = args.to_playlist or (f"{LIKED} (from {args.source.title()})" if name == LIKED else name)
@@ -199,9 +193,8 @@ def cmd_transfer(args: argparse.Namespace, services: Services) -> int:
             target, tracks, destination, min_score=args.min_score, dry_run=args.dry_run, progress=progress
         )
         print(result.summary())
-        unmatched.extend(result.unmatched)
-        near_misses.extend(result.near_misses)
-    _report_unmatched(unmatched, near_misses, args.unmatched)
+        misses.extend(result.misses)
+    _report_unmatched(misses, args.unmatched)
     return 0
 
 

@@ -109,6 +109,27 @@ def test_joined_artist_names_are_split_but_short_parts_are_ignored():
     assert score(a("Old Town Road", "Lil Nas X"), a("Old Town Road", "X")) == 0.0  # "x" joins nothing here
 
 
+def test_artists_that_only_share_some_letters_are_someone_else():
+    assert score(a("Jane", "Radio Blazers"), a("Jane", "Roy Blair")) == 0.0  # 0.64 alike, not the same band
+    assert score(a("Refugee", "Tom Petty and the Heartbreakers"), a("Refugee", "Tom Petty")) == 1.0
+
+
+@pytest.mark.parametrize(
+    ("wanted", "found", "same"),
+    [
+        ("Song 55", "Song 5", False),
+        ("Nightcall - Part 1", "Nightcall - Part 2", False),
+        ("Symphony No. 5", "Symphony No. 7", False),
+        ("Alone, Pt. II", "Alone, Part 2", True),
+        ("Symphony No. 5, Op. 67: I. Allegro", "Symphony No. 5, Op. 67: 1. Allegro", True),  # one side has more
+        ("Song (Live 1986)", "Song (Live)", True),
+        ("Summer of '69", "Summer Of 69 - Remastered 2008", True),
+    ],
+)
+def test_titles_with_other_numbers_are_other_songs(wanted, found, same):
+    assert (score(t(wanted), t(found)) >= 0.8) is same
+
+
 def test_without_artists_the_title_and_length_decide():
     # A CSV with titles only: this used to be refused whatever the title, as the artist counted as a mismatch.
     assert score(a("Get Lucky", duration_ms=None), a("Get Lucky", "Daft Punk")) >= 0.9

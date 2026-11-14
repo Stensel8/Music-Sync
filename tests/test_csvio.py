@@ -1,6 +1,7 @@
 import pytest
 
 from musicsync.csvio import COLUMNS, read_tracks, slug, write_tracks
+from musicsync.errors import CsvError
 from musicsync.models import Track, normalize_isrc
 
 from .support import ISRC_A
@@ -63,6 +64,19 @@ def test_junk_values_are_ignored(tmp_path):
     text = "title,artists,duration_ms,isrc,spotify_uri\nX,Y,not-a-number,ISRC1,https://example.com\n"
     (t,) = read_tracks(write(tmp_path, text))
     assert (t.duration_ms, t.isrc, t.ids) == (None, None, {})
+
+
+@pytest.mark.parametrize("duration", ["inf", "-inf", "nan", "1e999"])
+def test_a_duration_that_is_no_number_of_milliseconds_is_ignored(tmp_path, duration):
+    (t,) = read_tracks(write(tmp_path, f"title,duration_ms\nX,{duration}\n"))
+    assert t.duration_ms is None
+
+
+def test_a_file_the_csv_reader_gives_up_on_is_a_csv_error(tmp_path):
+    # A quote that is never closed makes the rest of the file one field, and past 128 KiB the reader refuses.
+    text = 'title,artists\n"Unclosed,Artist\n' + "Song,Artist\n" * 12_000
+    with pytest.raises(CsvError, match=r"in\.csv cannot be read as CSV"):
+        read_tracks(write(tmp_path, text))
 
 
 def test_an_empty_file_has_no_tracks(tmp_path):

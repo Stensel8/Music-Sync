@@ -44,6 +44,8 @@ def parse_csv(fh: TextIO, source: str = "the CSV") -> list[Track]:
         rows = [row for row in csv.reader(fh) if any(cell.strip() for cell in row)]
     except UnicodeDecodeError as exc:
         raise CsvError(f"{source} is not UTF-8 encoded") from exc
+    except csv.Error as exc:  # for one: a quote that is never closed, swallowing the rest of a big file
+        raise CsvError(f"{source} cannot be read as CSV: {exc}") from exc
     if not rows:
         return []
 
@@ -66,7 +68,7 @@ def _track(record: dict[str, str]) -> Track | None:
         ids["tidal"] = record["tidal_id"]
     try:
         duration = int(float(record.get("duration_ms", "")))
-    except ValueError:
+    except ValueError, OverflowError:  # not a number, or "inf"
         duration = None
     return Track(
         title=title,

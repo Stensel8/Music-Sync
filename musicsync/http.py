@@ -70,6 +70,7 @@ class ApiClient:
         timeout: float = 20,
     ):
         self.base_url = base_url.rstrip("/")
+        self.origin = "{0.scheme}://{0.netloc}/".format(urlsplit(self.base_url))  # where the token may go
         self.token = token
         self.headers = headers or {}
         self.session = session or requests.Session()  # keeps connections open between requests
@@ -86,8 +87,14 @@ class ApiClient:
         json: Json | None = None,
         headers: dict[str, str] | None = None,
     ) -> Json:
-        """Send a request and return the JSON answer. ``path`` may be a full URL (a "next page" link)."""
-        url = path if path.startswith("http") else self.base_url + path
+        """Send a request and return the JSON answer. ``path`` may be a full URL (a "next page" link), as
+        long as it is on the API's own host: the access token goes along, and no other host should get it."""
+        if not path.startswith(("http://", "https://")):
+            url = self.base_url + path
+        elif path.startswith(self.origin):
+            url = path
+        else:
+            raise NetworkError(f"{urlsplit(self.base_url).netloc} sent a link to another address: {path[:100]}")
         attempt, refreshed, force_refresh = 0, False, False
         while True:
             auth = {"Authorization": f"Bearer {self.token(force_refresh)}"}

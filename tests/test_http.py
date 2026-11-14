@@ -117,6 +117,24 @@ def test_a_network_failure_is_a_network_error():
 
 
 @responses.activate
-def test_full_urls_are_used_as_they_are():
-    responses.get("https://elsewhere.test/page2", json={"page": 2})
-    assert make_client().request("GET", "https://elsewhere.test/page2") == {"page": 2}
+def test_full_urls_of_the_api_are_used_as_they_are():
+    responses.get("https://api.test/page2?offset=50", json={"page": 2})
+    assert make_client().request("GET", "https://api.test/page2?offset=50") == {"page": 2}
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    "link",
+    [
+        "https://elsewhere.test/page2",
+        "http://api.test/page2",  # our host, but unencrypted
+        "https://api.test.evil.example/page2",
+        "https://api.test@evil.example/page2",
+        "https://api.test:8443/page2",
+    ],
+)
+def test_the_token_is_never_sent_to_another_address(link):
+    # A "next page" link comes out of a response; the token must not follow it off the API.
+    with pytest.raises(NetworkError, match="another address"):
+        make_client().request("GET", link)
+    assert len(responses.calls) == 0

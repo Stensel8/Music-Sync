@@ -119,14 +119,24 @@ def load_settings(path: Path | None = None, env: Mapping[str, str] | None = None
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ConfigError(f"Could not read {path}: {exc}") from exc
 
+    def text(table: dict, key: str, where: str = "") -> str:
+        """A setting, which has to be text: a number or a list there is a slip worth explaining."""
+        if not isinstance(value := table.get(key, ""), str):
+            raise ConfigError(f'{key}{where} in {path} must be text between quotes, like {key} = "..."')
+        return value
+
     services = {}
     for name in SERVICES:
-        section, prefix = data.get(name, {}), name.upper()
+        section, prefix, where = data.get(name, {}), name.upper(), f" under [{name}]"
+        if not isinstance(section, dict):  # spotify = "..." instead of a [spotify] section
+            raise ConfigError(f"{name} in {path} must be a section: [{name}] on a line, its settings under it")
         services[name] = ServiceConfig(
-            client_id=env.get(f"{prefix}_CLIENT_ID") or section.get("client_id", ""),
-            client_secret=env.get(f"{prefix}_CLIENT_SECRET") or section.get("client_secret", ""),
+            client_id=env.get(f"{prefix}_CLIENT_ID") or text(section, "client_id", where),
+            client_secret=env.get(f"{prefix}_CLIENT_SECRET") or text(section, "client_secret", where),
             # The web interface listens on 8888; the CLI login borrows the same address.
-            redirect_uri=env.get(f"{prefix}_REDIRECT_URI") or section.get("redirect_uri") or default_redirect_uri(name),
+            redirect_uri=env.get(f"{prefix}_REDIRECT_URI")
+            or text(section, "redirect_uri", where)
+            or default_redirect_uri(name),
         )
-    country = env.get("MUSICSYNC_COUNTRY") or data.get("country") or _locale_country()
+    country = env.get("MUSICSYNC_COUNTRY") or text(data, "country") or _locale_country()
     return Settings(services, country.upper())

@@ -42,6 +42,22 @@ def test_a_broken_file_is_a_config_error(tmp_path):
         load_settings(path, {})
 
 
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ('spotify = "my-client-id"\n', r"spotify in .*config\.toml must be a section"),
+        ("[spotify]\nclient_id = 12345\n", r"client_id under \[spotify\] in .*config\.toml must be text"),
+        ('[tidal]\nclient_id = "id"\nclient_secret = ["s"]\n', r"client_secret under \[tidal\]"),
+        ("country = 31\n", r"country in .*config\.toml must be text"),
+    ],
+)
+def test_a_setting_of_the_wrong_kind_is_a_config_error(tmp_path, text, message):
+    path = tmp_path / "config.toml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ConfigError, match=message):
+        load_settings(path, {})
+
+
 def test_the_template_is_valid_and_fills_in_what_is_read(tmp_path, monkeypatch):
     monkeypatch.setenv("LC_ALL", "de_DE.UTF-8")
     untouched = load_settings(TEMPLATE, {})

@@ -1,6 +1,7 @@
 """A small JSON API client: bearer auth, token refresh on 401, retry on 429 and 5xx."""
 
 import logging
+import math
 import time
 from collections.abc import Callable
 from typing import Any
@@ -49,9 +50,11 @@ def _quota_exceeded(resp: requests.Response) -> bool:
 def _retry_delay(resp: requests.Response, attempt: int) -> float:
     """Seconds to wait: what the server asks for (at most a minute), else exponential backoff."""
     try:
-        return min(float(resp.headers["Retry-After"]), 60.0)
-    except KeyError, ValueError:
-        return min(2.0**attempt, 60.0)
+        asked = float(resp.headers["Retry-After"])
+    except KeyError, ValueError:  # no header, or a date instead of seconds
+        asked = math.nan
+    # Not a wait at all (negative, or "nan"): time.sleep() would refuse it, so back off as if nothing was asked.
+    return min(asked, 60.0) if asked >= 0 else min(2.0**attempt, 60.0)
 
 
 class ApiClient:

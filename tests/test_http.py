@@ -53,6 +53,20 @@ def test_429_waits_for_retry_after_and_retries():
 
 
 @responses.activate
+@pytest.mark.parametrize(
+    ("asked", "waited"),
+    [("600", 60.0), ("inf", 60.0), ("-5", 1.0), ("nan", 1.0), ("Wed, 21 Oct 2026 07:28:00 GMT", 1.0)],
+)
+def test_a_retry_after_that_is_no_sensible_wait_does_not_break_the_retry(asked, waited):
+    # time.sleep() raises on a negative number and on NaN; an hour would look like a hang.
+    responses.get(URL, status=429, headers={"Retry-After": asked})
+    responses.get(URL, json={"ok": True})
+    sleeps: list[float] = []
+    assert make_client(sleeps).request("GET", "/thing") == {"ok": True}
+    assert sleeps == [waited]
+
+
+@responses.activate
 def test_quota_exceeded_fails_at_once_without_waiting():
     responses.get(URL, status=429, json={"error": {"status": 429, "reason": "QUOTA_EXCEEDED"}})
     sleeps: list[float] = []

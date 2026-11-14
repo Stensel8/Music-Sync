@@ -2,6 +2,7 @@
 
 import os
 import re
+import tempfile
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -32,11 +33,24 @@ def config_path() -> Path:
 
 
 def write_private(path: Path, text: str, *, exclusive: bool = False) -> None:
-    """Write a file that only the current user can read, created that way from the start."""
+    """Write a file that only the current user can read, created that way from the start. A file that is
+    already there is replaced in one step, or with ``exclusive`` left alone (FileExistsError)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    flags = os.O_WRONLY | os.O_CREAT | (os.O_EXCL if exclusive else os.O_TRUNC)
-    with os.fdopen(os.open(path, flags, 0o600), "w", encoding="utf-8") as fh:
-        fh.write(text)
+    if exclusive:
+        fd, tmp = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), None
+    else:
+        # A new file of our own (mkstemp makes it 0600) that takes the place of the old one: a crash cannot
+        # leave half a file, and what was there before, however readable, has no say in the permissions.
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        if tmp:
+            Path(tmp).replace(path)
+    except BaseException:
+        if tmp:
+            Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def ensure_config_file() -> bool:

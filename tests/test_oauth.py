@@ -68,6 +68,43 @@ def test_token_store_round_trip_and_permissions(tmp_path):
     assert store.load("demo") is None
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no such permissions")
+@pytest.mark.parametrize("leftover", ["tokens.json", "tokens.tmp"])
+def test_the_token_file_is_private_whatever_was_there_before(tmp_path, leftover):
+    (tmp_path / leftover).write_text("{}", encoding="utf-8")
+    (tmp_path / leftover).chmod(0o644)  # readable by everyone
+    store = TokenStore(tmp_path / "tokens.json")
+    store.save("demo", Token("a", "r"))
+    assert store.path.stat().st_mode & 0o777 == 0o600
+    assert [p.name for p in tmp_path.iterdir() if p.name != leftover] in ([], ["tokens.json"])  # no temp file stays
+
+
+def test_two_logins_saved_at_once_are_both_kept(tmp_path):
+    # A job refreshing one login while another is saved: the file is read, changed and written back, and
+    # the two must not do that through each other.
+    reading, go_on = threading.Event(), threading.Event()
+
+    class SlowStore(TokenStore):
+        def _read(self):
+            data = super()._read()
+            if threading.current_thread().name == "slow":
+                reading.set()
+                go_on.wait(5)  # hold what was read, as a slow disk would
+            return data
+
+    store = SlowStore(tmp_path / "tokens.json")
+    slow = threading.Thread(target=store.save, args=("spotify", Token("s")), name="slow")
+    fast = threading.Thread(target=store.save, args=("tidal", Token("t")), name="fast")
+    slow.start()
+    assert reading.wait(5)
+    fast.start()
+    fast.join(0.2)  # long enough to write, were nothing stopping it
+    go_on.set()
+    slow.join(5)
+    fast.join(5)
+    assert store.load("spotify") == Token("s") and store.load("tidal") == Token("t")
+
+
 @pytest.mark.parametrize("content", ["{not json", "[1, 2]", '{"demo": {"unexpected": 1}}'])
 def test_a_damaged_token_file_means_not_logged_in(tmp_path, content):
     path = tmp_path / "tokens.json"

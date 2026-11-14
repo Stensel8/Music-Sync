@@ -41,6 +41,8 @@ class TokenStore:
         self.path = path or config_dir() / "tokens.json"
         # Held while a token is refreshed, so two jobs in this process cannot both spend a one-time refresh token.
         self.lock = threading.Lock()
+        # Held while the file is read, changed and written back, so that one change cannot undo another.
+        self._changing = threading.Lock()
 
     def _read(self) -> dict[str, Any]:
         try:
@@ -50,9 +52,7 @@ class TokenStore:
         return data if isinstance(data, dict) else {}
 
     def _write(self, data: dict[str, Any]) -> None:
-        tmp = self.path.with_suffix(".tmp")
-        write_private(tmp, json.dumps(data, indent=2))
-        tmp.replace(self.path)  # atomic: a crash cannot leave half a file
+        write_private(self.path, json.dumps(data, indent=2))
 
     def load(self, service: str) -> Token | None:
         try:
@@ -61,14 +61,16 @@ class TokenStore:
             return None
 
     def save(self, service: str, token: Token) -> None:
-        self._write({**self._read(), service: asdict(token)})
+        with self._changing:
+            self._write({**self._read(), service: asdict(token)})
 
     def delete(self, service: str) -> bool:
-        data = self._read()
-        if data.pop(service, None) is None:
-            return False
-        self._write(data)
-        return True
+        with self._changing:
+            data = self._read()
+            if data.pop(service, None) is None:
+                return False
+            self._write(data)
+            return True
 
 
 def pkce_pair() -> tuple[str, str]:

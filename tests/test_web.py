@@ -1,4 +1,5 @@
 import io
+import os
 import re
 import time
 
@@ -11,7 +12,7 @@ from musicsync.errors import ApiError
 from musicsync.models import Track
 from musicsync.oauth import Token
 from musicsync.sync import Miss, Step
-from musicsync.web import create_app
+from musicsync.web import _secret_key, create_app
 from musicsync.web.jobs import Job
 
 from .support import ISRC_A, FakeProvider, FakeServices, track
@@ -123,6 +124,32 @@ def test_only_our_own_host_names_are_answered(client):
 def test_responses_carry_security_headers(client):
     headers = client.get("/").headers
     assert headers["X-Content-Type-Options"] == "nosniff" and headers["X-Frame-Options"] == "DENY"
+    # Only our own files, and nothing inline: an injected script would not run.
+    policy = headers["Content-Security-Policy"]
+    assert "default-src 'self'" in policy and "frame-ancestors 'none'" in policy and "unsafe" not in policy
+    assert "Content-Security-Policy" in client.get("/static/app.js").headers
+
+
+def test_the_pages_have_nothing_inline_for_the_policy_to_block(client, services):
+    services.store.save("spotify", Token("A", "R", time.time() + 100))
+    for path in ("/", "/login", "/spotify/account", "/spotify/setup", "/tidal/setup", "/jobs/nope"):
+        page = client.get(path).get_data(as_text=True)
+        assert not re.search(r"<style|style=|<script(?![^>]*\bsrc=)|\son\w+=|javascript:", page, re.IGNORECASE), path
+
+
+def test_the_cookie_key_is_made_once_and_kept_private():
+    key = _secret_key()
+    assert len(key) == 64 and _secret_key() == key
+    key_file = config_path().with_name("web-secret-key")
+    if os.name != "nt":
+        assert key_file.stat().st_mode & 0o777 == 0o600
+    key_file.write_text("", encoding="utf-8")  # a crash between making the file and filling it
+    assert len(_secret_key()) == 64  # an empty key would make every login fail
+
+
+def test_the_cookie_key_does_not_need_a_folder_it_can_write_to(tmp_path):
+    (tmp_path / "config").write_text("a file where the config folder should go", encoding="utf-8")
+    assert len(_secret_key()) == 64
 
 
 @pytest.mark.parametrize(
@@ -343,10 +370,34 @@ def test_transfer_copies_liked_songs_to_the_other_service(client, services):
     assert [name for name, _ in tidal.playlists_by_id.values()] == ["Liked Songs (from Spotify)"]
 
 
-@pytest.mark.parametrize("body", [{"source": "tidal", "target": "tidal"}, {"source": "x", "target": "tidal"}, {}])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"source": "tidal", "target": "tidal"},
+        {"source": "x", "target": "tidal"},
+        {},
+        [],
+        "text",
+        {"source": ["spotify"]},
+    ],
+)
 def test_transfer_validates_its_input(client, body):
     response = client.post("/transfer", json=body, headers=JSON)
     assert response.status_code == 400 and response.get_json()["status"] == "error"
+
+
+def test_fields_of_another_kind_than_text_do_not_break_a_job(client, services):
+    tidal = services.providers["tidal"]
+    assert isinstance(tidal, FakeProvider)
+    job = wait_for(client, transfer(client, name=2026).get_json()["id"])
+    assert job["status"] == "done" and [name for name, _ in tidal.playlists_by_id.values()] == ["2026"]
+    tidal.existing_playlist("Mix", track("In list"))
+    for body in ({"playlist": 404}, ["not", "an", "object"]):
+        response = client.post("/tidal/export", json=body, headers=JSON)
+        assert response.status_code == 202
+        job = wait_for(client, response.get_json()["id"])
+        # A playlist that does not exist, or (nothing usable sent) the liked songs, which the fake has none of.
+        assert job["status"] == "error" and ("No playlist" in job["message"] or "is empty" in job["message"])
 
 
 def test_a_failing_job_reports_the_reason(tmp_path):

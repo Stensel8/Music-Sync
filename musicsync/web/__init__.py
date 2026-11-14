@@ -1,5 +1,6 @@
 """The local web interface: the same export, import and transfer as the CLI, in a browser."""
 
+import contextlib
 import os
 import secrets
 from urllib.parse import urlsplit
@@ -19,12 +20,13 @@ def _secret_key() -> str:
     if key := os.environ.get("SECRET_KEY"):
         return key
     path = config_dir() / "web-secret-key"
-    try:
-        return path.read_text(encoding="utf-8").strip()
-    except OSError:
-        key = secrets.token_hex(32)
+    with contextlib.suppress(OSError):
+        if key := path.read_text(encoding="utf-8").strip():  # an empty file is no key
+            return key
+    key = secrets.token_hex(32)
+    with contextlib.suppress(OSError):  # a folder we cannot write to: the key then lasts until we stop
         write_private(path, key)
-        return key
+    return key
 
 
 def _reject_cross_origin() -> None:
@@ -44,7 +46,15 @@ def _reject_cross_origin() -> None:
         abort(403, "Request from another website refused.")
 
 
+# The pages only use their own scripts, styles and images, and nothing inline. Should a track or playlist
+# name ever get past the escaping, the browser still refuses to run it or to send anything elsewhere.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
+
+
 def _security_headers(response: Response) -> Response:
+    response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"

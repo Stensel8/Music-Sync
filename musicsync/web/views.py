@@ -45,6 +45,12 @@ def _accounts() -> list[dict]:
     ]
 
 
+def _sent() -> dict:
+    """The JSON object the page sent; anything else counts as nothing sent."""
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else {}
+
+
 def _start(kind: str, title: str, work: Callable[[Job], str]) -> tuple[Response, int]:
     """Run ``work(job)`` in the background. The page follows its progress at /jobs/<id>."""
     return jsonify(id=_jobs().start(kind, title, work).id), 202
@@ -82,12 +88,12 @@ def login_page() -> str:
 
 @pages.post("/transfer")
 def transfer() -> tuple[Response, int]:
-    data = request.get_json(silent=True) or {}
+    data = _sent()
     source, target = data.get("source"), data.get("target")
     if source not in SERVICES or target not in SERVICES or source == target:
         raise ProviderError("Choose two different services.")
-    playlist = data.get("playlist") or None
-    name = (data.get("name") or "").strip()
+    playlist = str(data.get("playlist") or "") or None  # str: an id may arrive as a number
+    name = str(data.get("name") or "").strip()
     source_provider, target_provider = _services().provider(source), _services().provider(target)
 
     def work(job: Job) -> str:
@@ -195,7 +201,7 @@ def playlists(service: str) -> Response:
 @service_pages.post("/export")
 def export(service: str) -> tuple[Response, int]:
     """Read liked songs or a playlist in the background; the page downloads the CSV at /jobs/<id>/download."""
-    playlist = (request.get_json(silent=True) or {}).get("playlist") or None
+    playlist = str(_sent().get("playlist") or "") or None
     provider = _services().provider(service)  # built here, so missing credentials fail the request, not the job
 
     def work(job: Job) -> str:

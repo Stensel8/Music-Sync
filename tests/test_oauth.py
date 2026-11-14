@@ -10,13 +10,14 @@ import pytest
 import requests
 import responses
 
-from musicsync.errors import LoginError, NotLoggedIn
+from musicsync.errors import LoginError, NetworkError, NotLoggedIn
 from musicsync.oauth import (
     ClientCredentials,
     OAuthClient,
     StoredToken,
     Token,
     TokenStore,
+    _CallbackHandler,
     loopback_login,
     pkce_pair,
 )
@@ -158,6 +159,29 @@ def test_token_endpoint_errors_become_login_errors():
         demo().exchange("CODE", "V")
 
 
+@responses.activate
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"body": "<html>Down for maintenance</html>"},
+        {"json": {"token_type": "Bearer"}},
+        {"json": ["access_token"]},
+        {"json": {"access_token": "A", "expires_in": "soon"}},
+    ],
+)
+def test_a_token_answer_that_makes_no_sense_is_a_login_error(answer):
+    responses.post(TOKEN_URL, **answer)
+    with pytest.raises(LoginError, match="usable token"):
+        demo().exchange("CODE", "V")
+
+
+@responses.activate
+def test_a_token_answer_without_an_expiry_gets_an_hour():
+    responses.post(TOKEN_URL, json={"access_token": "A", "expires_in": None, "scope": None})
+    token = demo().exchange("CODE", "V")
+    assert 3500 < token.expires_at - time.time() <= 3600 and token.scope == ""
+
+
 # --- token providers ---------------------------------------------------------------------------------
 
 
@@ -207,6 +231,17 @@ def test_a_failed_refresh_asks_for_a_new_login(tmp_path):
 
 
 @responses.activate
+def test_a_login_server_in_trouble_is_not_an_expired_session(tmp_path):
+    # A 503 says nothing about the login: "log in again" would be the wrong advice, and would not help.
+    store = TokenStore(tmp_path / "t.json")
+    store.save("demo", Token("old", "R", 0))
+    responses.post(TOKEN_URL, status=503)
+    with pytest.raises(NetworkError, match="HTTP 503"):
+        StoredToken(demo(), store)()
+    assert store.load("demo") == Token("old", "R", 0)
+
+
+@responses.activate
 def test_client_credentials_are_cached():
     responses.post(TOKEN_URL, json={"access_token": "APP", "expires_in": 1000})
     provider = ClientCredentials(demo("S"))
@@ -217,12 +252,14 @@ def test_client_credentials_are_cached():
 # --- the loopback login (real sockets, so `responses` must stay out of it) --------------------------
 
 
-def run_login(query: str, state: str = "STATE") -> dict[str, object]:
+def run_login(query: str, state: str = "STATE", host: str = "127.0.0.1", idle_first: bool = False) -> dict[str, object]:
     """Run the loopback login on a thread, then hit its redirect URI the way a browser would."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    with socket.socket(family) as probe:
+        probe.bind((host, 0))
         port = probe.getsockname()[1]
-    redirect = f"http://127.0.0.1:{port}/demo/callback"
+    address = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+    redirect = f"http://{address}/demo/callback"
     outcome: dict[str, object] = {}
 
     def login() -> None:
@@ -237,11 +274,17 @@ def run_login(query: str, state: str = "STATE") -> dict[str, object]:
     thread.start()
     for _ in range(50):  # wait until the server is listening
         try:
-            requests.get(f"http://127.0.0.1:{port}/favicon.ico", timeout=1)  # a browser asks for this too
+            requests.get(f"http://{address}/favicon.ico", timeout=1)  # a browser asks for this too
             break
         except requests.ConnectionError:
             time.sleep(0.1)
-    requests.get(f"{redirect}?{query}", timeout=5)
+    # A browser opens spare connections and may leave one unused: it says nothing, and stays open.
+    idle = socket.create_connection((host, port)) if idle_first else None
+    try:
+        requests.get(f"{redirect}?{query}", timeout=5)
+    finally:
+        if idle:
+            idle.close()
     thread.join(timeout=10)
     return outcome
 
@@ -258,6 +301,22 @@ def test_loopback_login_reports_a_refusal():
     assert "access_denied" in str(run_login("error=access_denied&state=STATE")["error"])
 
 
-def test_loopback_login_only_accepts_loopback_redirects():
+def test_loopback_login_is_not_held_up_by_a_connection_that_says_nothing(monkeypatch):
+    assert _CallbackHandler.timeout, "a connection that says nothing has to time out"
+    monkeypatch.setattr(_CallbackHandler, "timeout", 0.2)  # the test need not wait as long as a browser may take
+    assert run_login("code=abc&state=STATE", idle_first=True) == {"code": "abc"}
+
+
+def test_loopback_login_works_on_the_ipv6_loopback():
+    try:
+        with socket.socket(socket.AF_INET6) as probe:
+            probe.bind(("::1", 0))
+    except OSError:
+        pytest.skip("no IPv6 loopback here")
+    assert run_login("code=abc&state=STATE", host="::1") == {"code": "abc"}
+
+
+@pytest.mark.parametrize("redirect", ["https://example.com/cb", "http://127.0.0.1:99999/cb", "http://127.0.0.1:x/cb"])
+def test_loopback_login_only_accepts_loopback_redirects(redirect):
     with pytest.raises(LoginError, match="loopback"):
-        loopback_login("https://auth.test/authorize", "https://example.com/cb", "S", open_browser=False)
+        loopback_login("https://auth.test/authorize", redirect, "S", open_browser=False)

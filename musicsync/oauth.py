@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import secrets
+import socket
 import threading
 import time
 import webbrowser
@@ -19,7 +20,7 @@ import requests
 
 from .config import config_dir, write_private
 from .errors import LoginError, NetworkError, NotLoggedIn
-from .http import error_message
+from .http import error_message, json_body
 
 
 @dataclass(slots=True)
@@ -94,6 +95,7 @@ class _CallbackServer(HTTPServer):
     """Waits for the single redirect the browser makes back to us after the user has logged in."""
 
     def __init__(self, address: tuple[str, int], path: str):
+        self.address_family = socket.AF_INET6 if ":" in address[0] else socket.AF_INET  # "::1" is IPv6
         super().__init__(address, _CallbackHandler)
         self.path = path
         self.params: dict[str, str] = {}
@@ -101,6 +103,10 @@ class _CallbackServer(HTTPServer):
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
+    # Seconds to wait for the request on a connection. Browsers open spare connections that say nothing;
+    # without a limit one of those would keep the server, which takes one at a time, from the real redirect.
+    timeout = 3
+
     def do_GET(self) -> None:
         server = cast(_CallbackServer, self.server)
         url = urlsplit(self.path)
@@ -129,14 +135,17 @@ def loopback_login(
 ) -> str:
     """Send the user to ``authorize_url`` and wait for the redirect on a local port. Returns the code."""
     target = urlsplit(redirect_uri)
-    host = target.hostname or ""
+    try:
+        host, port = target.hostname or "", target.port or 80
+    except ValueError:  # a port that is no number, or no port number
+        host, port = "", 0
     if host not in _LOOPBACK:
         raise LoginError(f"The CLI login needs a loopback redirect URI (127.0.0.1), got {redirect_uri}")
     try:
-        server = _CallbackServer((host, target.port or 80), target.path)
+        server = _CallbackServer((host, port), target.path)
     except OSError as exc:
         raise LoginError(
-            f"Cannot listen on {host}:{target.port} ({exc}). If the web interface is running, log in there instead, "
+            f"Cannot listen on {host}:{port} ({exc}). If the web interface is running, log in there instead, "
             "or stop it first."
         ) from exc
 
@@ -202,15 +211,20 @@ class OAuthClient:
             resp = self.session.post(self.token_endpoint, data=data, auth=auth, timeout=20)
         except requests.RequestException as exc:
             raise NetworkError(f"could not reach the {self.name} login server: {exc}") from exc
+        if resp.status_code >= 500:  # their trouble, not a refusal: the login itself may be fine
+            raise NetworkError(f"the {self.name} login server is having trouble (HTTP {resp.status_code})")
         if not resp.ok:
             raise LoginError(f"{self.name} token request failed (HTTP {resp.status_code}): {error_message(resp)}")
-        payload = resp.json()
-        return Token(
-            access_token=payload["access_token"],
-            refresh_token=payload.get("refresh_token"),
-            expires_at=time.time() + float(payload.get("expires_in", 3600)),
-            scope=payload.get("scope", ""),
-        )
+        payload = json_body(resp)
+        try:
+            return Token(
+                access_token=payload["access_token"],
+                refresh_token=payload.get("refresh_token"),
+                expires_at=time.time() + float(payload.get("expires_in") or 3600),
+                scope=payload.get("scope") or "",
+            )
+        except (KeyError, TypeError, ValueError) as exc:  # a page instead of JSON, or JSON without a token
+            raise LoginError(f"the {self.name} login server sent an answer without a usable token") from exc
 
     def _with_secret(self, data: dict[str, str]) -> dict[str, str]:
         return {**data, "client_secret": self.client_secret} if self.client_secret else data

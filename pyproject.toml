@@ -54,6 +54,7 @@ venv = ".venv"
 
 [tool.vulture]
 paths = ["musicsync"]
-# Called by frameworks, not by our code: Flask views and http.server handlers. Token.scope is only stored.
+# Called or read by frameworks, not by our code: Flask views, and what http.server looks for in its handlers and
+# servers. Token.scope is only stored.
 ignore_decorators = ["@pages.*", "@service_pages.*"]
-ignore_names = ["do_GET", "log_message", "format", "scope"]
+ignore_names = ["do_GET", "log_message", "format", "scope", "address_family"]

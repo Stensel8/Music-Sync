@@ -38,6 +38,30 @@ def test_export_all_writes_one_csv_per_playlist_and_skips_unreadable_ones(tmp_pa
     assert "skipping" in capsys.readouterr().err
 
 
+def test_export_all_keeps_playlists_whose_file_names_would_collide(tmp_path):
+    # Spotify lets two playlists share a name, and a file name drops characters that told two names apart.
+    spotify = FakeProvider("spotify", liked=[track("Liked one")])
+    for name, title in [("Chill", "First"), ("Chill", "Second"), ("chill", "Third"), ("Liked Songs", "Fourth")]:
+        spotify.existing_playlist(name, track(title))
+    spotify.existing_playlist("Road/trip", track("Fifth"))
+    spotify.existing_playlist("Road:trip", track("Sixth"))
+
+    folder = tmp_path / "all"
+    assert (
+        cli.main(["export", "spotify", "--all", "-q", "-o", str(folder)], FakeServices(tmp_path, spotify=spotify)) == 0
+    )
+    written = {path.name: [t.title for t in read_tracks(path)] for path in folder.iterdir()}
+    assert written == {
+        "Liked Songs.csv": ["Liked one"],
+        "Chill.csv": ["First"],
+        "Chill (2).csv": ["Second"],
+        "chill (3).csv": ["Third"],
+        "Liked Songs (2).csv": ["Fourth"],
+        "Road_trip.csv": ["Fifth"],
+        "Road_trip (2).csv": ["Sixth"],
+    }
+
+
 def test_empty_lists_are_not_exported_and_are_flagged(tmp_path, capsys):
     spotify = FakeProvider("spotify", liked=[track("Liked one")])
     spotify.existing_playlist("Empty")

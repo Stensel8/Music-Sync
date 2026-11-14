@@ -6,6 +6,7 @@ import shutil
 import sys
 import time
 from collections.abc import Callable, Sequence
+from itertools import count
 from pathlib import Path
 
 from . import __version__
@@ -72,6 +73,14 @@ def _progress(quiet: bool) -> Progress | None:
     return None if quiet else _ProgressLine()
 
 
+def _free_name(name: str, taken: set[str]) -> str:
+    """``name``, or "name (2)" and so on when an earlier file took it. Two playlists can share a name, and
+    ``slug`` makes more names alike; "Mix" and "mix" are one file on Windows and macOS."""
+    free = next(n for i in count(1) if (n := name if i == 1 else f"{name} ({i})").casefold() not in taken)
+    taken.add(free.casefold())
+    return free
+
+
 def _report_unmatched(misses: list[Miss], path: str | None) -> None:
     """Show the tracks that were not found and why, or save them all when ``--unmatched`` was given."""
     if not misses:
@@ -134,8 +143,9 @@ def cmd_export(args: argparse.Namespace, services: Services) -> int:
     )
     if args.all:  # one CSV per playlist, in a folder
         folder = Path(args.output or f"music-sync-export/{args.service}")
+        taken: set[str] = set()
         for name, tracks in selected:
-            path = folder / f"{slug(name)}.csv"
+            path = folder / f"{_free_name(slug(name), taken)}.csv"
             print(f"{write_tracks(path, tracks):>5} tracks -> {path}")
     else:
         ((name, tracks),) = selected

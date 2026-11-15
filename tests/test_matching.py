@@ -124,6 +124,17 @@ def test_artists_that_only_share_some_letters_are_someone_else():
         ("Symphony No. 5, Op. 67: I. Allegro", "Symphony No. 5, Op. 67: 1. Allegro", True),  # one side has more
         ("Song (Live 1986)", "Song (Live)", True),
         ("Summer of '69", "Summer Of 69 - Remastered 2008", True),
+        # Numbers that are written as a word or as one of the letters I, V and X.
+        ("Nightcall - Part One", "Nightcall - Part Two", False),
+        ("Nightcall, Pt. One", "Nightcall (Part 1)", True),
+        ("Alone, Pt. I", "Alone, Pt. II", False),
+        ("Alone, Pt. I", "Alone, Part 1", True),
+        ("Symphony No. 5, Op. 67: I. Allegro con brio", "Symphony No. 5, Op. 67: II. Andante con moto", False),
+        ("Symphony No. 5, Op. 67 - I. Allegro con brio", "Symphony No. 5, Op. 67 - V. Finale", False),
+        ("Suite No. 3: V. Gigue", "Suite No. 3: 5. Gigue", True),
+        ("One", "One (Remastered)", True),
+        ("U.N.I.T.Y.", "U.N.I.T.Y. (Live Version 2)", False),  # live, and no "I." of a movement
+        ("I. Robot", "I Robot", True),  # one side has a number more
     ],
 )
 def test_titles_with_other_numbers_are_other_songs(wanted, found, same):

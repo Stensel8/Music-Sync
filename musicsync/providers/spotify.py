@@ -16,7 +16,7 @@ PAGE_SIZE = 50
 # Since February 2026 Spotify refuses apps whose owner has no Premium subscription, with a plain 403.
 PREMIUM_REQUIRED = (
     "Spotify only lets apps whose owner has a Premium subscription use its API (a rule since February 2026). "
-    'See "Spotify\'s API needs Premium" in the README for what you can do.'
+    'See "Setting up Spotify and Tidal" in the README for what you can do.'
 )
 
 
